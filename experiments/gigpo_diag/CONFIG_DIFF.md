@@ -91,3 +91,23 @@ placeholder sizes, task distribution, reward or trainer. Existing environments,
 model files and native libraries are reused. Other projects receive the same
 version constraint to prevent this shared failure; their jobs are not restarted
 or cancelled automatically. HPC data preparation/real training remain unverified.
+
+## AppWorld prepare job 160576: missing Git LFS bundle contents
+
+HPC APPWORLD_COMPAT_CHECK_PASSED confirms the earlier Pydantic fix. The next
+native appworld install failed because the installed apps.bundle was an LFS
+pointer. At the unchanged pinned upstream commit 42b5bcf3cd334fee33f0c37c02070a9f5807add5,
+install_package requires apps.bundle and tests.bundle, totaling 398651 bytes.
+Fetch only those two blobs from that commit's media.githubusercontent.com URLs;
+check the exact pointer, size and SHA256 before replacement. Already materialized
+matching files need no download. Guard the dedicated venv and package version,
+preserve original pointers/RECORD and update installed RECORD hashes. Save the
+verification report to the job TMPDIR. No upstream source or evaluator changes.
+
+On Windows/Python 3.12.4 with the actual pinned AppWorld package, downloaded both
+objects and ran unchanged appworld install successfully (apps and tests unpacked,
+exit 0). A second helper invocation verified both without downloading. This is
+local installation evidence, not HPC service, data-download or training evidence.
+Set APPWORLD_CACHE under the user's own scratch root in both prepare and training;
+the upstream default otherwise writes to the shared account's HOME cache.
+Reuse the existing venv and retry only AppWorld. Preparation defaults to one hour.

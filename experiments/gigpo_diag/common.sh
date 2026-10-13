@@ -11,6 +11,8 @@ export GIGPO_MODEL_PATH="$ORION_ROOT/data/models/Qwen2.5-1.5B-Instruct-989aa798"
 export HF_HOME="$ORION_ROOT/.cache/huggingface"
 export ALFWORLD_DATA="$ORION_ROOT/data/alfworld"
 export GIGPO_APPWORLD_DATA="$ORION_ROOT/data/appworld-gigpo-v1"
+export APPWORLD_CACHE="$ORION_ROOT/.cache/gigpo-appworld/appworld"
+mkdir -p "$APPWORLD_CACHE"
 export JAVA_HOME="$ORION_ROOT/runtimes/jdk-11.0.28+6"
 export PATH="$JAVA_HOME/bin:$PATH"
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false

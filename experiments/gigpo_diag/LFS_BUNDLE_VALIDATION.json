@@ -1,0 +1,16 @@
+{
+  "incident_job": 160576,
+  "upstream_revision": "42b5bcf3cd334fee33f0c37c02070a9f5807add5",
+  "hpc_compatibility_check": "passed in supplied log",
+  "hpc_install_before_fix": "failed: apps.bundle is an LFS pointer",
+  "local_validation": {
+    "platform": "Windows",
+    "python": "3.12.4",
+    "appworld": "0.2.0.dev0",
+    "download_size_and_sha256": "both passed",
+    "native_appworld_install_exit_code": 0,
+    "native_appworld_install_result": "apps and tests unpacked",
+    "repeat_helper": "passed; both downloaded=false"
+  },
+  "hpc_fixed_install_and_training": "not yet run"
+}
