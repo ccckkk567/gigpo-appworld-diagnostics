@@ -42,7 +42,7 @@ def _start_one(index, root):
             port=sock.getsockname()[1]
         path=root/f'server-{index}-{attempt}.log'
         log=path.open('ab')
-        process=subprocess.Popen([sys.executable,'-m','appworld.cli','serve','environment','--port',str(port),
+        process=subprocess.Popen([sys.executable,'-m','experiments.gigpo_diag.appworld_server','serve','environment','--port',str(port),
                                   '--root',os.environ['APPWORLD_ROOT']], stdout=log, stderr=subprocess.STDOUT)
         _owned.append((process,log))
         (root/f'server-{index}-{attempt}.pid.json').write_text(json.dumps({'pid':process.pid,'port':port,'index':index,'job':os.environ.get('SLURM_JOB_ID')}))

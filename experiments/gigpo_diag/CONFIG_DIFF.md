@@ -207,3 +207,47 @@ tests passed; no HPC backfill or cloud restoration has been performed.
 
 Metadata: https://pypi.org/pypi/swanlab/0.9.0/json and
 https://pypi.org/pypi/opentelemetry-proto/1.26.0/json.
+
+## AppWorld 160668: LibCST validation exception before code execution
+
+Job 160668 completed two native actor updates (driver policy updates 1 and 2),
+with 272 completed episode records (16 initial dev + 2*128 train). It then failed
+during the third rollout: /execute returned HTTP 500. The service traceback is
+SafetyGuard.is_syntax_safe -> parse_imports -> libcst.parse_module ->
+CSTValidationError: "The bare except: handler must be the last one."
+Other pasted NameError and nonexistent-API errors returned HTTP 200 and are
+ordinary model/environment feedback, not the cause of the training exit.
+
+At locked in-context-explorer commit cd71379130155b2d75c9100753d1454d3cde6696,
+AppWorldWorker.step directly calls env.execute without an exception handler,
+and AppWorldEnvs.step propagates ray.get failures. projection.py checks tags,
+not Python syntax. The upstream README installs AppWorld from unpinned Git;
+the repository does not establish the authors' exact historical dependency
+versions or whether they encountered this input. Our pinned AppWorld commit is
+42b5bcf3cd334fee33f0c37c02070a9f5807add5. Its code_is_valid uses ast.parse, which
+accepts the minimal offending structure, followed by uncaught LibCST validation.
+The same exception was reproduced locally with the unmodified package.
+
+The native service now starts via experiments.gigpo_diag.appworld_server. This
+installs a process-local wrapper around SafetyGuard.is_syntax_safe before invoking
+the original CLI. Only CSTValidationError is converted to (False, error message).
+Native AppWorld.execute then performs its existing rejection path: no submitted
+code executes, one interaction is consumed, original input and error are logged,
+and feedback returns through HTTP 200. All normal checks and other exceptions
+retain their original behavior. No package file is edited or upgraded; no broad
+HTTP retry, task reset, success fallback or failure-to-zero conversion is added.
+Projection/format penalty, reward, evaluator, GiGPO and batch/seed stay unchanged.
+This is an explicitly recorded compatibility repair, not an existing upstream
+feature. Snapshot the wrapper/services and record the installed LibCST version.
+
+Local validation: five tests with real AppWorld 0.2.0.dev0, LibCST 1.9.0,
+FastAPI 0.141.1 and Starlette 1.8.0. Real /execute endpoint and AppWorld.execute
+run against a minimal synthetic world fixture (no task database/model): baseline
+HTTP 500; patched rejection HTTP 200 with exact original input and one turn;
+valid/forbidden/ordinary-invalid checks unchanged; unrelated errors still 500;
+idempotent installation. This does not claim a new HPC rollout or training run.
+
+Retain job 160668's failed-after-updates results. Its checkpoint schedule saves
+every ten updates and it stopped at two; the normal retry starts a new run from
+the pinned initial model, unless a real complete checkpoint is separately found.
+No prepare rerun is needed. Other project checkouts and jobs are unchanged.
