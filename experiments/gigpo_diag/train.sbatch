@@ -14,6 +14,7 @@ set -euo pipefail
 module purge
 module load python/3.12.5 cuda/12.6.2
 source experiments/gigpo_diag/common.sh
+source experiments/gigpo_diag/nvidia_job_env.sh
 test -f "$GIGPO_VENV/.setup-complete"
 source "$GIGPO_VENV/bin/activate"
 python experiments/gigpo_diag/check_python_environment.py --pip-version 25.3

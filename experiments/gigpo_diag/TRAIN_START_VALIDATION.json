@@ -1,0 +1,24 @@
+{
+  "gpu_shell_checks": [
+    {
+      "cuda": "0,1",
+      "cuda_preserved": true,
+      "amd_masks_removed": true
+    },
+    {
+      "cuda": "2,5",
+      "cuda_preserved": true,
+      "amd_masks_removed": true
+    },
+    {
+      "cuda": "GPU-example-a,GPU-example-b",
+      "cuda_preserved": true,
+      "amd_masks_removed": true
+    }
+  ],
+  "missing_cuda_refused": true,
+  "appworld_before": "Actual module import reproduced ModuleNotFoundError: alfworld on local Windows Python 3.12.4",
+  "appworld_after": "Actual env_manager import and AppWorldEnvironmentManager constructor passed; no ALFWorld package loaded",
+  "hpc_training_retry": "not yet run",
+  "gpu_worker_execution": "not tested locally"
+}

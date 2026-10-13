@@ -129,3 +129,25 @@ workers. Do not change native num_proc, datasets, tasks or training recipe.
 AppWorld gets the same preventative fix; no remote running job is modified.
 Local Linux validation is recorded in IPC_PATH_VALIDATION.json. The actual
 HPC retry remains necessary; no preparation/training success is claimed yet.
+
+## Train 160623 / 160621: runtime startup failures after prepare passed
+
+User reports all three preparation jobs passed. ALFWorld 160623 loaded native
+train/eval environment pools and data, but the Worker CUDA visibility guard
+rejected nonempty ROCR_VISIBLE_DEVICES together with HIP/CUDA_VISIBLE_DEVICES.
+The log records zero updates and zero diagnostic episodes. It does not establish
+which upstream process set ROCR; Slurm GPU flags can export multiple vendor masks
+(https://slurm.schedmd.com/gres.conf.html). On these fixed NVIDIA jobs, record the
+three masks then clear AMD-only ROCR/HIP before Python and job-local Ray start.
+Require and preserve the exact Slurm CUDA_VISIBLE_DEVICES value. Keep Ray GPU
+assignment and native Worker checks unchanged; no RAY_NOSET flags or GPU IDs added.
+The same NVIDIA launcher adaptation is applied to AppWorld for the next retry.
+
+AppWorld 160621 failed even earlier while importing the shared env_manager:
+the module-level ALFWorld constants import executes ALFWorld package initializers,
+which require the unrelated external alfworld package. Reproduced the identical
+ModuleNotFoundError locally. Move this one import into its sole consuming ALFWorld
+method, is_openable_receptacle. AppWorld's parser, prompt, reward and evaluator are
+unchanged; the native ALFWorld method still uses the same constants when called.
+No new dependencies or prepare rerun are required. Retry only the failed train
+jobs with new run IDs; retain both failed-run reports. ScienceWorld is not changed.

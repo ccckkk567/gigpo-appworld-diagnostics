@@ -24,7 +24,6 @@ from agent_system.environments.base import EnvironmentManagerBase, to_numpy
 from agent_system.memory import SimpleMemory, SearchMemory, WebVoyagerMemory
 from omegaconf import OmegaConf
 import re
-from agent_system.environments.env_package.alfworld.alfworld.gen.constants import OPENABLE_CLASS_SET
 
 def extract_known_and_unknown(responses: List[str]) -> Tuple[List[str], List[str]]:
     """
@@ -360,6 +359,8 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         return normalized
     
     def is_openable_receptacle(self, receptacle: str) -> bool:
+        # Load ALFWorld dependencies only when its manager uses them.
+        from agent_system.environments.env_package.alfworld.alfworld.gen.constants import OPENABLE_CLASS_SET
         for openable_receptacle in OPENABLE_CLASS_SET:
             if openable_receptacle.lower() in receptacle.lower():
                 return True
