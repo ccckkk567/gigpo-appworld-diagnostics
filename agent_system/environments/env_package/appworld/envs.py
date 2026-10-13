@@ -18,7 +18,8 @@ import numpy as np
 import ray
 import time
 
-from appworld import AppWorld, load_task_ids
+from appworld import load_task_ids
+from experiments.gigpo_diag.appworld_client import AppWorldClient, EXECUTE_HTTP_GRACE_SECONDS
 
 def load_available_ports(port_file="appworld_ports.ports"):
     """
@@ -65,7 +66,7 @@ class AppWorldWorker:
         self.reset_serial += 1
         self.task_id = task_id
         self.experiment_name = f"{os.environ['GIGPO_RUN_ID']}-w{self.worker_id}-r{self.reset_serial}"
-        self.env = AppWorld(
+        self.env = AppWorldClient(
             task_id=task_id,
             experiment_name=self.experiment_name,
             remote_environment_url=self.url,
@@ -76,6 +77,9 @@ class AppWorldWorker:
         info = {
             "task_id": task_id,
             "service_identity": {"url": self.url, "experiment": self.experiment_name, "worker": self.worker_id},
+            "code_timeout_seconds": self.env.timeout_seconds,
+            "execute_http_timeout_seconds": (self.env.timeout_seconds + EXECUTE_HTTP_GRACE_SECONDS
+                                             if self.env.timeout_seconds is not None else None),
             "initial_state_hash": None,
             "initialization_semantics": "native fresh task databases and default deterministic AppWorld seed; instruction consistency checked",
             "supervisor": dict(self.env.task.supervisor),

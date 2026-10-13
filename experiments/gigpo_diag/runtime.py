@@ -64,6 +64,15 @@ def record_provenance(config):
         pool = root/'agent_system/environments/env_package/sciworld/variations_idx/L0_idx.json'
         provenance['task_pool_sha256'] = sha(pool)
         provenance['simplifications_preset'] = config.env.sciworld.get('simplifications_preset', 'easy')
+    if os.environ['GIGPO_ENV'] == 'appworld':
+        from appworld import AppWorld
+        from experiments.gigpo_diag.appworld_client import EXECUTE_HTTP_GRACE_SECONDS
+        timeout = AppWorld.init_defaults.timeout_seconds
+        provenance['appworld_timeouts'] = {
+            'code_execution_seconds': timeout,
+            'execute_http_read_seconds': timeout + EXECUTE_HTTP_GRACE_SECONDS if timeout is not None else None,
+            'execute_http_grace_seconds': EXECUTE_HTTP_GRACE_SECONDS,
+            'automatic_execute_retries': 0}
     for name, value in [('environment_provenance.json', provenance), ('model_identity.json', identity)]:
         (output/name).write_text(json.dumps(value, indent=2), encoding='utf-8')
     source = json.loads((Path(__file__).parent/'SOURCE.json').read_text())
@@ -76,7 +85,7 @@ def record_provenance(config):
                 'reference_schedule_epochs':config.trainer.total_epochs, 'formal_holdout_details_saved':False}
     (output/'RUN_MANIFEST.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     snapshot = output/'implementation_snapshot'
-    for name in ('gigpo/core_gigpo.py','agent_system/environments/env_manager.py','agent_system/multi_turn_rollout/rollout_loop.py','verl/trainer/ppo/ray_trainer.py','verl/utils/tracking.py','experiments/gigpo_diag/diagnostics.py','experiments/gigpo_diag/services.py','experiments/gigpo_diag/appworld_server.py','experiments/gigpo_diag/SOURCE.json','experiments/gigpo_diag/CONFIG_DIFF.md'):
+    for name in ('gigpo/core_gigpo.py','agent_system/environments/env_manager.py','agent_system/multi_turn_rollout/rollout_loop.py','verl/trainer/ppo/ray_trainer.py','verl/utils/tracking.py','experiments/gigpo_diag/diagnostics.py','experiments/gigpo_diag/services.py','experiments/gigpo_diag/appworld_server.py','experiments/gigpo_diag/appworld_client.py','agent_system/environments/env_package/appworld/envs.py','experiments/gigpo_diag/SOURCE.json','experiments/gigpo_diag/CONFIG_DIFF.md'):
         dest=snapshot/name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root/name,dest)

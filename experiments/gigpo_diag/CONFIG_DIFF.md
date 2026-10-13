@@ -251,3 +251,45 @@ Retain job 160668's failed-after-updates results. Its checkpoint schedule saves
 every ten updates and it stopped at two; the normal retry starts a new run from
 the pinned initial model, unless a real complete checkpoint is separately found.
 No prepare rerun is needed. Other project checkouts and jobs are unchanged.
+
+
+## AppWorld 160809: receive native code-timeout feedback before HTTP expiry
+
+HPC run appworld-qwen25-15b-gigpo-160809-20261013T131208Z used 1755dc7,
+including the prior LibCST rejection handler. It completed 16 initial dev
+episodes, then failed in the first train rollout (zero actor updates) with
+requests.ReadTimeout at 127.0.0.1:35695 after 100 seconds. Service manifest maps
+this port to worker 118 / server PID 3955464. Its final execute logged HTTP 200.
+The user's environment_io.md identifies task 07b42fd_1, interaction 22: the model
+iterated filtered_artists while appending matching artists to the same list.
+AppWorld recorded 'Exception: Execution timed out after 100 seconds.' The native
+failure feedback existed but the HTTP client expired at the same 100s boundary.
+
+Pinned AppWorld uses timeout_seconds for both server code execution and client
+requests.post reads. Add a narrow AppWorldClient subclass that delegates to the
+native helper, extending only execute HTTP requests by 60 seconds (100 -> 160
+with this Linux recipe). Initialization still sends the original 100-second
+execution limit. Other RPCs, no-timeout mode, parser, code input, error feedback,
+interaction counts, evaluator/reward and GiGPO logic are unchanged. There are no
+automatic execute retries, resets, invented observations, or swallowed transport
+errors; a genuinely stalled service still aborts at the bounded client deadline.
+The code may have made partial state changes before the native timeout; retain
+AppWorld's original semantics rather than pretending to roll those back.
+
+Each new run records execution and transport deadlines in environment provenance
+and reset info, and snapshots the client and environment wrapper. The existing
+process-local LibCST repair and nonfatal SwanLab fallback remain in place. This
+requires only the repository update, not a dependency/environment reinstall.
+
+Validation is local client compatibility checking, not a new HPC training run:
+real native client with synthetic responses verifies 100s server initialization,
+160s execute reads, original feedback/input/one-turn accounting, unchanged
+success and no-timeout behavior, and fail-fast HTTP/connection/read errors with
+one request only. A real loopback HTTP server uses scaled short timings to show
+the old deadline fails while the new client receives the delayed error response;
+it does not execute a 100-second infinite loop or task DBs. All 12 tests passed
+(seven client checks plus five existing LibCST/FastAPI regressions). Further HPC updates remain
+unverified until a new user-submitted training job runs.
+
+Pinned source (native timeout and remote helper):
+https://github.com/StonyBrookNLP/appworld/blob/42b5bcf3cd334fee33f0c37c02070a9f5807add5/src/appworld/environment.py
