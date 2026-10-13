@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
-#SBATCH --time=06:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=/scratch/prjsnnn0000269/Students/shuming/cjk/logs/ggp-appworld-prepare-%j.out
 export GIGPO_ENV=appworld
 export GIGPO_VAL_BATCH=16
