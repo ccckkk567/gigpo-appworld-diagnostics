@@ -23,23 +23,28 @@ BASE_PYTHON="$(command -v python3.12)"
 if [[ ! -x "$GIGPO_VENV/bin/python" ]]; then "$BASE_PYTHON" -I -m venv "$GIGPO_VENV"; fi
 source "$GIGPO_VENV/bin/activate"
 python -I -c 'import sys; assert sys.version_info[:2] == (3,12) and sys.prefix != sys.base_prefix'
+"$GIGPO_VENV/bin/python" -I -m ensurepip --upgrade
+"$GIGPO_VENV/bin/python" -I experiments/gigpo_diag/check_python_environment.py
+source experiments/gigpo_diag/pip_install.sh
 rm -f "$GIGPO_VENV/.setup-complete"
-python -m pip install --index-url https://pypi.org/simple 'pip==25.3' 'setuptools<81' wheel ninja packaging
+gigpo_pip_install --upgrade --force-reinstall 'pip==25.3'
+python experiments/gigpo_diag/check_python_environment.py --pip-version 25.3
+gigpo_pip_install 'setuptools<81' wheel ninja packaging
 export MAX_JOBS=4
-python -m pip install --index-url https://pypi.org/simple -r experiments/gigpo_diag/requirements-runtime.txt
-python -m pip install --index-url https://pypi.org/simple 'flash-attn==2.7.4.post1' --no-build-isolation
-python -m pip install --index-url https://pypi.org/simple -e . -c experiments/gigpo_diag/requirements-runtime.txt
+gigpo_pip_install -r experiments/gigpo_diag/requirements-runtime.txt
+gigpo_pip_install 'flash-attn==2.7.4.post1' --no-build-isolation -c experiments/gigpo_diag/constraints-runtime.txt
+gigpo_pip_install -e . -c experiments/gigpo_diag/constraints-runtime.txt
 if [[ "$GIGPO_ENV" == appworld ]]; then
   export APPWORLD_ROOT="$GIGPO_APPWORLD_DATA"
   mkdir -p "$APPWORLD_ROOT"
-  python -m pip install --index-url https://pypi.org/simple 'appworld @ git+https://github.com/StonyBrookNLP/appworld.git@42b5bcf3cd334fee33f0c37c02070a9f5807add5' -c experiments/gigpo_diag/requirements-runtime.txt
+  gigpo_pip_install 'appworld @ git+https://github.com/StonyBrookNLP/appworld.git@42b5bcf3cd334fee33f0c37c02070a9f5807add5' -c experiments/gigpo_diag/constraints-runtime.txt
   appworld install
   appworld download data --root "$APPWORLD_ROOT"
-  python -m pip install 'antlr4-python3-runtime==4.9.3'
+  gigpo_pip_install 'antlr4-python3-runtime==4.9.3' -c experiments/gigpo_diag/constraints-runtime.txt
 fi
-python -m pip check
+"$GIGPO_VENV/bin/python" -I -m pip check
 python -c 'import sys,verl,torch,vllm; print("RUNTIME",sys.executable,verl.__file__,torch.__version__,vllm.__version__,flush=True); assert torch.cuda.is_available()'
-python -m pip freeze > "$GIGPO_VENV/gigpo-pip-freeze.txt"
+"$GIGPO_VENV/bin/python" -I -m pip freeze > "$GIGPO_VENV/gigpo-pip-freeze.txt"
 # One shared immutable initialization; independent venvs and editable installations.
 mkdir -p "$(dirname "$GIGPO_MODEL_PATH")"
 exec 8>"$GIGPO_MODEL_PATH.download.lock"

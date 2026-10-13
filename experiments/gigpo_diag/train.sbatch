@@ -16,6 +16,7 @@ module load python/3.12.5 cuda/12.6.2
 source experiments/gigpo_diag/common.sh
 test -f "$GIGPO_VENV/.setup-complete"
 source "$GIGPO_VENV/bin/activate"
+python experiments/gigpo_diag/check_python_environment.py --pip-version 25.3
 export GIGPO_CODE_COMMIT="$(git rev-parse HEAD)"
 export GIGPO_RUN_ID="${GIGPO_RUN_ID:-${GIGPO_ENV}-qwen25-15b-gigpo-${SLURM_JOB_ID}-$(date -u +%Y%m%dT%H%M%SZ)}"
 export GIGPO_RUN_DIR="$ORION_ROOT/logs/gigpo-reproduction/$GIGPO_ENV/$GIGPO_RUN_ID"

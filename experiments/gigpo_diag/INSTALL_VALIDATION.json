@@ -1,0 +1,25 @@
+{
+  "scope": "installation_repair_local_validation",
+  "environment": "appworld",
+  "python_version": "3.12",
+  "target_platform": "x86_64-manylinux_2_28",
+  "resolver": "uv 0.11.7 pip compile",
+  "dependency_resolution_passed": true,
+  "resolved_package_count": 252,
+  "resolution_input_sha256": "430376a504c21b960aff814bd80f835c220ba0f57bcaec4b003c7641b85f9310",
+  "resolved_graph_sha256": "9f606abb7d3b89ee7d83bc99756ce4ee4f50871d56971049b02188472457a342",
+  "regression_tests_passed": 5,
+  "shell_syntax_passed": true,
+  "checks": [
+    "external module pip rejected",
+    "isolated Python ignores module PYTHONPATH",
+    "clean environment passes",
+    "pip accepts constraints without extras",
+    "transient index error retries successfully",
+    "persistent index error stops after 3 attempts",
+    "dependency conflict fails without retry"
+  ],
+  "training_launcher_changed": false,
+  "gpu_install_of_repaired_setup_executed": false,
+  "actual_training_updates_verified": 0
+}

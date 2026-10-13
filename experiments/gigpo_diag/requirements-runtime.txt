@@ -1,6 +1,6 @@
 numpy==1.26.4
 hydra-core==1.3.2
-swanlab==0.10.2
+swanlab==0.7.0
 matplotlib==3.10.6
 datasets==3.6.0
 torchdata==0.11.0
@@ -9,6 +9,6 @@ nltk==3.9.1
 vllm==0.8.5
 torch==2.6.0
 transformers==4.51.1
-ray[default]==2.49.0
+ray[default]==2.47.1
 tensordict==0.6.2
 peft==0.15.2

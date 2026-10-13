@@ -13,3 +13,26 @@ Reference: `examples/gigpo_trainer/run_appworld.sh`, upstream commit in SOURCE.j
 - AppWorld-only: native one-response code turn, train/dev split, max_interactions aligned to max_steps. `multi_episode_rollout=False`, success_coef=0 and prompt_type=vanilla; the latter two are not read by the AppWorld ordinary prompt/reward path (ALF/WebShop shaping is a separate branch). No claim that AppWorld's previous default success_coef caused shaping. 16*8 + 16*1 = 144 services derived from resolved config. Unique job/worker/reset experiments preserve native API traces. No global process cleanup. AppWorld library pinned to upstream Git commit 42b5bcf3cd334fee33f0c37c02070a9f5807add5 per Git-install recipe (PyPI 0.1.3.post1 requires pydantic1 and conflicts with vLLM).
 
 Native schedules and environment RNG may not resume bitwise identically (ALFWorld/TextWorld and AppWorld worker state not checkpointed). ScienceWorld task sampler sidecar restores its newly introduced independent RNG. Unknown labels remain null. No actual training has run locally; only HPC results can establish updates or learning.
+
+## Installation repair after first HPC attempt (2026-10-13)
+
+Observed: ALFWorld job 160221 built/installed flash-attn, then pip rejected
+`ray[default]` in the constraints file. AppWorld job 160225 failed resolution:
+vLLM 0.8.5 requires OpenTelemetry SDK 1.26.x but Ray[default] 2.49.0 requires >=1.30.
+ScienceWorld job 160223 received an unknown Content-Type for the datasets index;
+the same datasets 3.6.0 was found in the other jobs. Module pip/setuptools also
+leaked from /apps/spack into the activated venv in all logs.
+
+Separate constraints-runtime.txt strips extras; requirements-runtime.txt retains
+the requested extras. Clear module PYTHONPATH/PYTHONHOME in both setup and train,
+invoke installation using the absolute venv Python with -I, and verify imported
+pip + distribution metadata reside in that venv. Retry only recognized transient
+transport/index errors, at most three attempts. Each project gets its own pip cache.
+Existing venvs and installed flash-attn are reused. No directory/cache purge or
+global pip installation. Training recipe, model, reward and algorithm are unchanged.
+
+AppWorld dependency adaptation: Ray[default] 2.47.1 permits SDK 1.26.x and meets
+vLLM's >=2.43,!=2.44.* requirement. SwanLab 0.7.0 accepts protobuf 4.x, required by
+OpenTelemetry proto 1.26.0; SwanLab 0.10.2 instead requires protobuf >=6.31.1.
+Keep vLLM 0.8.5 and torch 2.6.0. This is a declared runtime dependency adaptation,
+not an exact recreation of the source README's Ray 2.49.0 installation sequence.
