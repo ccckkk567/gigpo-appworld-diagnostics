@@ -35,8 +35,16 @@ if [[ -f "$ORION_ROOT/dep-prep-credentials.env" ]]; then
   set +a
 fi
 export SWANLAB_MODE="${SWANLAB_MODE:-cloud}"
-export TMPDIR="$ORION_ROOT/tmp/gigpo-reproduction/${GIGPO_ENV}-${SLURM_JOB_ID:-local}"
-mkdir -p "$TMPDIR"
+# Python multiprocessing uses TMPDIR for AF_UNIX listener paths, independently of Ray.
+# Keep bulk temporary files and diagnostic reports on scratch, reached by a short
+# node-local alias. mktemp creates a private, unique directory (mode 700).
+export GIGPO_JOB_TMPDIR="$ORION_ROOT/tmp/gigpo-reproduction/${GIGPO_ENV}-${SLURM_JOB_ID:-local}"
+mkdir -p "$GIGPO_JOB_TMPDIR"
+GIGPO_TMP_ALIAS_DIR="$(mktemp -d "/tmp/cjk-ggp-${SLURM_JOB_ID:-local}-${GIGPO_ENV:0:3}.XXXXXX")"
+ln -s "$GIGPO_JOB_TMPDIR" "$GIGPO_TMP_ALIAS_DIR/work"
+export TMPDIR="$GIGPO_TMP_ALIAS_DIR/work"
+export TMP="$TMPDIR" TEMP="$TMPDIR"
+echo "GIGPO_TMPDIR=$TMPDIR storage=$GIGPO_JOB_TMPDIR"
 # AF_UNIX socket paths are short and unique on each compute node.
 export RAY_TMPDIR="/tmp/cjk-ggp-${SLURM_JOB_ID:-local}-${GIGPO_ENV:0:3}"
 if [[ "$GIGPO_ENV" != alfworld ]]; then export VLLM_USE_V1=0; fi

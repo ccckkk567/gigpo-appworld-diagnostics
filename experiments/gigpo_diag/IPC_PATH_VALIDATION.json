@@ -1,0 +1,37 @@
+{
+  "platform": "linux",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "checks": [
+    {
+      "tempdir": "/tmp/cjk-ggp-160583-alf.PFhyil/work",
+      "listener": "/tmp/cjk-ggp-160583-alf.PFhyil/work/pymp-tjf06761/listener-_41cf5iu",
+      "listener_bytes": 67,
+      "manager": "passed",
+      "scratch_write": "passed",
+      "environment": "alfworld",
+      "original_error": "AF_UNIX path too long",
+      "original_listener_bytes": 215
+    },
+    {
+      "tempdir": "/tmp/cjk-ggp-160583-sci.PgbwSZ/work",
+      "listener": "/tmp/cjk-ggp-160583-sci.PgbwSZ/work/pymp-4p6gyxcq/listener-6g3nib5r",
+      "listener_bytes": 67,
+      "manager": "passed",
+      "scratch_write": "passed",
+      "environment": "scienceworld",
+      "original_error": "AF_UNIX path too long",
+      "original_listener_bytes": 219
+    },
+    {
+      "tempdir": "/tmp/cjk-ggp-160583-app.jsiFmA/work",
+      "listener": "/tmp/cjk-ggp-160583-app.jsiFmA/work/pymp-_po9yy3p/listener-cpec48sn",
+      "listener_bytes": 67,
+      "manager": "passed",
+      "scratch_write": "passed",
+      "environment": "appworld",
+      "original_error": "AF_UNIX path too long",
+      "original_listener_bytes": 215
+    }
+  ],
+  "hpc_status": "not yet retried; local Linux IPC check only"
+}

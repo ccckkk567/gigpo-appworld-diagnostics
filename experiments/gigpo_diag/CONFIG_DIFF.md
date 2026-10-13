@@ -111,3 +111,21 @@ local installation evidence, not HPC service, data-download or training evidence
 Set APPWORLD_CACHE under the user's own scratch root in both prepare and training;
 the upstream default otherwise writes to the shared account's HOME cache.
 Reuse the existing venv and retry only AppWorld. Preparation defaults to one hour.
+
+## Prepare 160581 / 160583: multiprocessing AF_UNIX path length
+
+ALFWorld and ScienceWorld passed dependency/CUDA/model checks, then both failed
+in the native prepare.py datasets.map(num_proc=8) SyncManager listener bind:
+OSError: AF_UNIX path too long. EOFError is the subsequent parent-side symptom.
+The long scratch TMPDIR, not the separately shortened RAY_TMPDIR, determines
+Python multiprocessing listener paths. No optimizer updates occurred.
+
+Keep the scratch storage directory as GIGPO_JOB_TMPDIR. Give TMPDIR/TMP/TEMP a
+short alias inside a unique mode-700 mktemp directory on the compute node;
+the alias points to that job's original scratch directory. Bulk builds and
+diagnostic files still persist under the original scratch path. This applies
+to both preparation and training, whose dataset filtering can also spawn
+workers. Do not change native num_proc, datasets, tasks or training recipe.
+AppWorld gets the same preventative fix; no remote running job is modified.
+Local Linux validation is recorded in IPC_PATH_VALIDATION.json. The actual
+HPC retry remains necessary; no preparation/training success is claimed yet.
