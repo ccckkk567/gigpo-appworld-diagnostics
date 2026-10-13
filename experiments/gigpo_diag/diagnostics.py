@@ -372,6 +372,28 @@ def tracker_status(state, **extra):
 
 
 @safe
+def record_validation_samples(samples, step):
+    write("validation_samples", [{"global_step": int(step), "sample_index": i,
+                                 "input": sample[0], "output": sample[1], "score": sample[2]}
+                                for i, sample in enumerate(samples)])
+
+
+@safe
+def tracker_failure(state, phase, exc):
+    import traceback
+    message = str(exc)
+    # Exceptions can echo authentication values; never persist known credentials.
+    for name, value in os.environ.items():
+        if value and any(word in name.upper() for word in ("TOKEN", "KEY", "SECRET", "PASSWORD")):
+            message = message.replace(value, "[REDACTED]")
+    message = re.sub(r"(?i)(bearer\s+)\S+", r"\1[REDACTED]", message)
+    frames = [{"file": Path(f.filename).name, "line": f.lineno, "function": f.name}
+              for f in traceback.extract_tb(exc.__traceback__)]
+    tracker_status(state, phase=phase, error_type=type(exc).__name__,
+                   error_message=message[:2000], traceback_frames=frames)
+
+
+@safe
 def save_sampler(trainer, checkpoint_dir):
     states = {}
     for key in ("envs", "val_envs"):

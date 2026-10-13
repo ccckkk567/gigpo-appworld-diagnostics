@@ -83,8 +83,8 @@ class Tracking:
                 diag.tracker_status("initialized", mode=os.environ.get("SWANLAB_MODE", "cloud"),
                                     url=getattr(run, "url", None))
             except Exception as exc:
-                diag.tracker_status("local_only", error_type=type(exc).__name__)
-                print("SwanLab unavailable; continuing with local diagnostics", flush=True)
+                diag.tracker_failure("local_only", "init", exc)
+                print(f"SwanLab unavailable ({type(exc).__name__}); continuing with local diagnostics", flush=True)
 
         if "vemlp_wandb" in default_backend:
             import os
@@ -126,7 +126,7 @@ class Tracking:
                     try:
                         logger_instance.log(data=data, step=step)
                     except Exception as exc:
-                        diag.tracker_status("upload_failed_local_preserved", error_type=type(exc).__name__)
+                        diag.tracker_failure("upload_failed_local_preserved", "metrics", exc)
                 else:
                     logger_instance.log(data=data, step=step)
 
@@ -186,7 +186,10 @@ class Tracking:
         if "wandb" in self.logger:
             self.logger["wandb"].finish(exit_code=0)
         if "swanlab" in self.logger:
-            self.logger["swanlab"].finish()
+            try:
+                self.logger["swanlab"].finish()
+            except Exception as exc:
+                diag.tracker_failure("finish_failed", "finish", exc)
         if "vemlp_wandb" in self.logger:
             self.logger["vemlp_wandb"].finish(exit_code=0)
         if "tensorboard" in self.logger:
@@ -310,10 +313,15 @@ def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
 @dataclasses.dataclass
 class ValidationGenerationsLogger:
     def log(self, loggers, samples, step):
+        diag.record_validation_samples(samples, step)
         if "wandb" in loggers:
             self.log_generations_to_wandb(samples, step)
         if "swanlab" in loggers:
-            self.log_generations_to_swanlab(samples, step)
+            try:
+                self.log_generations_to_swanlab(samples, step)
+            except Exception as exc:
+                diag.tracker_failure("validation_upload_failed_local_preserved", "validation", exc)
+                print(f"SwanLab validation upload failed ({type(exc).__name__}); continuing with local diagnostics", flush=True)
         if "mlflow" in loggers:
             self.log_generations_to_mlflow(samples, step)
 

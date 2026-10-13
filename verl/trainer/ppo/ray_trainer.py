@@ -795,8 +795,8 @@ class RayPPOTrainer:
         # Take first N samples after shuffling
         samples = samples[:generations_to_log]
 
-        # Log to each configured logger
-        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
+        # Initialization may have fallen back to local diagnostics.
+        self.validation_generations_logger.log(self.tracking.logger, samples, self.global_steps)
 
     def _validate(self):
         reward_tensor_lst = []

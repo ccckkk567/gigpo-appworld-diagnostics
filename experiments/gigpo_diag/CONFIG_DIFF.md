@@ -151,3 +151,26 @@ method, is_openable_receptacle. AppWorld's parser, prompt, reward and evaluator 
 unchanged; the native ALFWorld method still uses the same constants when called.
 No new dependencies or prepare rerun are required. Retry only the failed train
 jobs with new run IDs; retain both failed-run reports. ScienceWorld is not changed.
+
+
+## AppWorld 160641: non-blocking SwanLab validation logging
+
+The retry passed imports and GPU initialization and recorded 16 initial dev
+evaluation episodes, but completed zero optimizer updates. SwanLab init raised
+ApiError (the old record retained only its type), and Tracking fell back to local
+diagnostics. The separate validation logger still used the configured backend
+list and called swanlab.log without an initialized run, aborting before training.
+The available evidence does not distinguish authentication, network or server
+causes of the original ApiError.
+
+Validation now uses the successfully initialized backend dictionary. Its selected
+samples are saved locally before any upload; SwanLab text construction/upload,
+scalar upload and finish failures remain non-blocking. Init failures also record
+the exception message with known environment credentials redacted and traceback
+locations. No second run is initialized during validation. Full native validation
+trajectories remain in checkpoints/val_trajectories/val_0.jsonl as before.
+Snapshot tracking.py alongside the collector, trainer and diagnostics. No model,
+reward, parser, task pool, sampling, evaluator, package or training schedule change.
+Keep SwanLab 0.7.0 and rerun only train with a fresh run directory; no prepare.
+Local regression tests simulate init/media/scalar/finish failures and successful
+uploads. They do not establish HPC cloud connectivity or optimizer progress.
