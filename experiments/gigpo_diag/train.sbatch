@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #SBATCH -A prjsnnn0000269
-#SBATCH --job-name=ggp-app-train
+#SBATCH --job-name=ggp-app7b-train
 #SBATCH --partition=testqueue
 #SBATCH --gres=gpu:2
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=256G
 #SBATCH --time=17:50:00
-#SBATCH --output=/scratch/prjsnnn0000269/Students/shuming/cjk/logs/ggp-appworld-train-%j.out
+#SBATCH --output=/scratch/prjsnnn0000269/Students/shuming/cjk/logs/ggp-appworld-7b-train-%j.out
 export GIGPO_ENV=appworld
 export GIGPO_VAL_BATCH=16
 set -euo pipefail
@@ -19,7 +19,7 @@ test -f "$GIGPO_VENV/.setup-complete"
 source "$GIGPO_VENV/bin/activate"
 python experiments/gigpo_diag/check_python_environment.py --pip-version 25.3
 export GIGPO_CODE_COMMIT="$(git rev-parse HEAD)"
-export GIGPO_RUN_ID="${GIGPO_RUN_ID:-${GIGPO_ENV}-qwen25-15b-gigpo-${SLURM_JOB_ID}-$(date -u +%Y%m%dT%H%M%SZ)}"
+export GIGPO_RUN_ID="${GIGPO_RUN_ID:-${GIGPO_ENV}-qwen25-7b-gigpo-${SLURM_JOB_ID}-$(date -u +%Y%m%dT%H%M%SZ)}"
 export GIGPO_RUN_DIR="$ORION_ROOT/logs/gigpo-reproduction/$GIGPO_ENV/$GIGPO_RUN_ID"
 mkdir -p "$GIGPO_RUN_DIR"
 export GIGPO_DIAG_DIR="$GIGPO_RUN_DIR/diagnostics"

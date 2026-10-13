@@ -8,8 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-MODEL = 'Qwen/Qwen2.5-1.5B-Instruct'
-REVISION = '989aa7980e4cf806f80c7fef2b1adb7bc71aa306'
+from experiments.gigpo_diag.verify_existing_model import MODEL, REVISION, verify_existing_model
 
 
 def sha(path):
@@ -21,14 +20,9 @@ def sha(path):
 
 
 def prepare_model():
-    from huggingface_hub import snapshot_download
     path = Path(os.environ['GIGPO_MODEL_PATH'])
-    snapshot_download(MODEL, revision=REVISION, local_dir=str(path),
-                      allow_patterns=['*.json', '*.safetensors', '*.txt', '*.model', '*.jinja'])
-    files = {p.name: sha(p) for p in sorted(path.iterdir()) if p.is_file() and p.name != 'gigpo_model_identity.json' and p.suffix in ('.json', '.safetensors', '.txt', '.model', '.jinja')}
-    (path/'gigpo_model_identity.json').write_text(json.dumps({'model_id': MODEL, 'revision': REVISION,
-        'tokenizer_revision': REVISION, 'files_sha256': files}, indent=2), encoding='utf-8')
-    print('PINNED_MODEL_READY', path, REVISION, flush=True)
+    verify_existing_model(path)
+    print('EXISTING_7B_MODEL_VERIFIED_OFFLINE', path, REVISION, flush=True)
 
 
 def record_provenance(config):
@@ -41,14 +35,10 @@ def record_provenance(config):
     output = Path(os.environ['GIGPO_RUN_DIR'])
     output.mkdir(parents=True, exist_ok=True)
     model = Path(config.actor_rollout_ref.model.path).resolve()
-    identity = json.loads((model/'gigpo_model_identity.json').read_text())
-    assert identity['model_id'] == MODEL and identity['revision'] == REVISION
-    assert identity['tokenizer_revision'] == REVISION
-    model_cfg = json.loads((model/'config.json').read_text())
-    assert model_cfg['hidden_size'] == 1536 and model_cfg['num_hidden_layers'] == 28, 'Expected 1.5B identity'
-    # Hash all pinned checkpoint/tokenizer files before model loading.
-    for name, expected in identity['files_sha256'].items():
-        assert sha(model/name) == expected, f'Model/tokenizer file changed: {name}'
+    # Verify once before starting any environment services or loading the model.
+    # Identity is saved under this run, leaving the existing model directory untouched.
+    identity = verify_existing_model(model)
+    print('EXISTING_7B_MODEL_VERIFIED_OFFLINE', model, REVISION, flush=True)
     OmegaConf.save(config, output/'resolved_config.yaml', resolve=True)
     versions = {}
     for package in ('torch','transformers','vllm','ray','tensordict','flash-attn','swanlab','scienceworld','appworld','alfworld','libcst'):
@@ -85,7 +75,7 @@ def record_provenance(config):
                 'reference_schedule_epochs':config.trainer.total_epochs, 'formal_holdout_details_saved':False}
     (output/'RUN_MANIFEST.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     snapshot = output/'implementation_snapshot'
-    for name in ('gigpo/core_gigpo.py','agent_system/environments/env_manager.py','agent_system/multi_turn_rollout/rollout_loop.py','verl/trainer/ppo/ray_trainer.py','verl/utils/tracking.py','experiments/gigpo_diag/diagnostics.py','experiments/gigpo_diag/services.py','experiments/gigpo_diag/appworld_server.py','experiments/gigpo_diag/appworld_execution_trace.py','experiments/gigpo_diag/appworld_client.py','agent_system/environments/env_package/appworld/envs.py','experiments/gigpo_diag/SOURCE.json','experiments/gigpo_diag/CONFIG_DIFF.md'):
+    for name in ('gigpo/core_gigpo.py','agent_system/environments/env_manager.py','agent_system/multi_turn_rollout/rollout_loop.py','verl/trainer/ppo/ray_trainer.py','verl/utils/tracking.py','experiments/gigpo_diag/diagnostics.py','experiments/gigpo_diag/services.py','experiments/gigpo_diag/appworld_server.py','experiments/gigpo_diag/appworld_execution_trace.py','experiments/gigpo_diag/appworld_client.py','agent_system/environments/env_package/appworld/envs.py','experiments/gigpo_diag/verify_existing_model.py','experiments/gigpo_diag/model_files_7b.json','experiments/gigpo_diag/common.sh','experiments/gigpo_diag/launch_reference.sh','experiments/gigpo_diag/train.sbatch','experiments/gigpo_diag/SOURCE.json','experiments/gigpo_diag/CONFIG_DIFF.md'):
         dest=snapshot/name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root/name,dest)

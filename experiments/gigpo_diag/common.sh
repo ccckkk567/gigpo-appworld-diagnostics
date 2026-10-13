@@ -7,7 +7,7 @@ if [[ -n "${GIGPO_EXPECTED_COMMIT:-}" && "$(git rev-parse HEAD)" != "$GIGPO_EXPE
   exit 1
 fi
 export GIGPO_VENV="$ORION_ROOT/envs/gigpo-${GIGPO_ENV}-py312-v1"
-export GIGPO_MODEL_PATH="$ORION_ROOT/data/models/Qwen2.5-1.5B-Instruct-989aa798"
+export GIGPO_MODEL_PATH="$ORION_ROOT/data/models/Qwen2.5-7B-Instruct-a09a35458c70"
 export HF_HOME="$ORION_ROOT/.cache/huggingface"
 export ALFWORLD_DATA="$ORION_ROOT/data/alfworld"
 export GIGPO_APPWORLD_DATA="$ORION_ROOT/data/appworld-gigpo-v1"

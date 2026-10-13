@@ -347,3 +347,48 @@ Sources:
 https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/examples/gigpo_trainer/run_appworld.sh
 https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/agent_system/environments/env_package/appworld/envs.py
 https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/examples/env_server/start_appworld_server.sh
+
+
+## Independent AppWorld 7B capacity experiment (full reference schedule)
+
+The user requested Qwen2.5-7B-Instruct and then explicitly requested full training
+instead of the proposed two-hour / two-update probe. Branch
+codex/appworld-qwen25-7b-train keeps the full 150-epoch schedule, checkpoint
+frequency 10, evaluation frequency 5, and initial/final dev evaluation. Slurm
+requests two GPUs, 32 CPUs, 256G RAM and 17:50:00, within testqueue's 18h limit.
+There is no two-update cutoff. The time limit does not guarantee completion of
+all 150 epochs; native checkpoints allow later continuation.
+
+Use the user's existing directory:
+/scratch/prjsnnn0000269/Students/shuming/cjk/data/models/Qwen2.5-7B-Instruct-a09a35458c70
+Pin model/tokenizer revision a09a35458c702b33eeacc393d103063234e8bc28.
+No model download, dependency install or editable-install change is required.
+Before services/model loading, verify the existing 11 official files offline:
+four LFS weight SHA256s plus Git blob checksums for configuration/tokenizer files,
+file sizes, shard set, and 7B architecture. The expected checksum manifest was
+retrieved from the official pinned model API. Missing/corrupt/unexpected files
+abort rather than download or silently trust the directory name. Verification
+only reads the model directory; identity evidence is saved under the new run.
+
+Keep prompts, response/prompt limits (1024/7167), seed, task sampling, 16*8
+training batch, 16 dev evaluation batch, mean_norm, exact grouping, penalties,
+gamma, step weight, learning rate and effective PPO minibatch unchanged. Memory
+adaptations: actor/rollout-logprob/ref-logprob microbatch per GPU 2->1, vLLM
+memory utilization 0.6->0.45. These preserve the intended objective but do not
+establish numerical equivalence or guarantee 7B fits the allocated GPUs.
+Generation and update speed can change. Report names and manifests identify 7B.
+
+All prior AppWorld repairs and execution-stage diagnostics are included.
+SwanLab's old-SDK cloud initialization limitation still uses the nonfatal local
+fallback; the existing independent backfill utility remains available. The
+capacity hypothesis remains unproven until new real trajectories/updates arrive.
+
+Use a separate HPC checkout for this branch so running or queued 1.5B jobs
+retain their original code. Existing 1.5B experiment branch and other projects
+are unchanged by the 7B configuration.
+
+Official pinned metadata and architecture:
+https://huggingface.co/api/models/Qwen/Qwen2.5-7B-Instruct/revision/a09a35458c702b33eeacc393d103063234e8bc28?blobs=true
+https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/a09a35458c702b33eeacc393d103063234e8bc28/config.json
+
+Local verification: five offline integrity tests and all modified shell/Python syntax checks passed. The inherited 18 client/parser/execution-trace regressions passed before branching. No local 7B weights or GPU training were run; HPC capacity and learning remain unverified.

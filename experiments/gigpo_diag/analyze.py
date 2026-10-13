@@ -71,7 +71,7 @@ def main():
                     points=[r for r in flat if r['metric']==key and r['sample_kind']==kind and r['value'] is not None]
                     points.sort(key=lambda r:r['policy_version'])
                     if points: ax.plot([p['policy_version'] for p in points],[p['value'] for p in points],marker='o',label=f'{kind}: {key}')
-            ax.set(xlabel='Policy updates completed before rollout',ylabel='Rate among known observations',ylim=(-.03,1.03),title=f"{manifest.get('env','unknown')} / GiGPO / Qwen2.5-1.5B / seed 0\n{len(eps)} episodes; denominators and unknowns in CSV")
+            ax.set(xlabel='Policy updates completed before rollout',ylabel='Rate among known observations',ylim=(-.03,1.03),title=f"{manifest.get('env','unknown')} / GiGPO / Qwen2.5-7B / seed 0\n{len(eps)} episodes; denominators and unknowns in CSV")
             if ax.lines: ax.legend(fontsize=8)
             fig.tight_layout(); fig.savefig(root/'figures'/f'{name}.png',dpi=170); plt.close(fig)
             figures.append(name)
