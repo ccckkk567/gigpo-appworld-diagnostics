@@ -1,3 +1,4 @@
+from experiments.gigpo_diag import diagnostics as diag
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -186,6 +187,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             "0.6.3",
         ):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
+            diag.weights_loaded("fsdp_vllm/native_update_params")
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
             del params
         else:
@@ -196,6 +198,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
             # update model params
             self.update_params(params, peft_config=peft_config)
+            diag.weights_loaded("fsdp_vllm/native_update_params")
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
             del params
             if self.offload_param:

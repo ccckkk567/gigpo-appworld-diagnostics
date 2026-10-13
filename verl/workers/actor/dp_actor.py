@@ -1,3 +1,4 @@
+from experiments.gigpo_diag import diagnostics as diag
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright 2023-2024 SGLang Team
 # Copyright 2025 ModelBest Inc. and/or its affiliates
@@ -245,7 +246,9 @@ class DataParallelPPOActor(BasePPOActor):
             print(f"WARN: rank {torch.distributed.get_rank()} grad_norm is not finite: {grad_norm}")
             self.actor_optimizer.zero_grad()
         else:
+            diag_before = diag.parameter_sample(self.actor_optimizer)
             self.actor_optimizer.step()
+            diag.optimizer_completed(self.actor_optimizer, diag_before)
         return grad_norm
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
@@ -314,6 +317,7 @@ class DataParallelPPOActor(BasePPOActor):
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
     def update_policy(self, data: DataProto):
+        diag.set_update(data.meta_info.get("diag_update_target", diag.current_update()))
         # make sure we are in training mode
         self.actor_module.train()
 

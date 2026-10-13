@@ -24,6 +24,7 @@ def load_available_ports(port_file="appworld_ports.ports"):
     """
     Load available port list from file
     """
+    port_file = os.environ.get('APPWORLD_PORTS_FILE', port_file)
     if not os.path.exists(port_file):
         raise FileNotFoundError(f"Port file {port_file} does not exist. Please run the service startup script first.")
     
@@ -47,10 +48,11 @@ class AppWorldWorker:
     def __init__(self, worker_id, max_interactions, port):
         self.env = None
         self.current_step_count = 0
+        self.reset_serial = 0
         self.max_interactions = max_interactions
         self.worker_id = worker_id
         
-        self.url = f"http://0.0.0.0:{port}"
+        self.url = f"http://127.0.0.1:{port}"
 
     def reset(self, task_id):
         """Reset the environment with a new task."""
@@ -60,15 +62,22 @@ class AppWorldWorker:
 
         self.current_step_count = 0
 
+        self.reset_serial += 1
+        self.task_id = task_id
+        self.experiment_name = f"{os.environ['GIGPO_RUN_ID']}-w{self.worker_id}-r{self.reset_serial}"
         self.env = AppWorld(
             task_id=task_id,
-            experiment_name=f'default_{self.worker_id}',
+            experiment_name=self.experiment_name,
             remote_environment_url=self.url,
+            max_interactions=self.max_interactions,
         )
 
         obs = self.env.task.instruction
         info = {
             "task_id": task_id,
+            "service_identity": {"url": self.url, "experiment": self.experiment_name, "worker": self.worker_id},
+            "initial_state_hash": None,
+            "initialization_semantics": "native fresh task databases and default deterministic AppWorld seed; instruction consistency checked",
             "supervisor": dict(self.env.task.supervisor),
         }
         return obs, info
@@ -93,6 +102,15 @@ class AppWorldWorker:
             reward = 0.0
             info = {"won": False, "step_count": self.current_step_count}
 
+        # Native persistent API log, kept under this unique episode experiment.
+        # save_logs does not execute policy actions or change evaluator/reward.
+        info['task_id'] = self.task_id
+        info['termination'] = 'task_success' if info['won'] else ('budget' if self.current_step_count >= self.max_interactions else 'complete_task')
+        info['api_trace_ref'] = os.path.join(os.environ['APPWORLD_ROOT'], 'experiments', 'outputs', self.experiment_name, 'tasks', self.task_id, 'logs', 'api_calls.jsonl')
+        try:
+            self.env.save_logs()
+        except Exception as exc:
+            info['api_trace_unavailable'] = type(exc).__name__
         return obs, reward, done, info
 
     def close(self):

@@ -1,0 +1,12 @@
+{
+  "kind": "synthetic_and_config_only",
+  "environment": "appworld",
+  "hydra_compose_passed": true,
+  "python_syntax_passed": true,
+  "train_batch": 16,
+  "group": 8,
+  "val_batch": 16,
+  "max_steps": 50,
+  "norm_mode": "mean_norm",
+  "actual_hpc_training_executed": false
+}

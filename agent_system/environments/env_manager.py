@@ -1181,6 +1181,7 @@ class AppWorldEnvironmentManager(EnvironmentManagerBase):
         # add action_valid to infos
         for i, info in enumerate(infos):
             info['is_action_valid'] = to_numpy(valids[i])
+            info['diag_executed_action'] = actions[i]
 
         next_observations = {'text': full_text_obs, 'image': None, 'anchor': text_obs}
         rewards = to_numpy(rewards)
@@ -1468,8 +1469,8 @@ def make_envs(config):
         return envs, val_envs
     elif "appworld" in config.env.env_name.lower():
         from agent_system.environments.env_package.appworld import build_appworld_envs, appworld_projection
-        _envs = build_appworld_envs(dataset_name='train', seed=config.env.seed, env_num=config.data.train_batch_size, group_n=group_n, start_server_id=0, resources_per_worker=resources_per_worker)
-        _val_envs = build_appworld_envs(dataset_name='test_normal', seed=config.env.seed + 1000, env_num=config.data.val_batch_size, group_n=1, start_server_id=config.data.train_batch_size*group_n, resources_per_worker=resources_per_worker)
+        _envs = build_appworld_envs(dataset_name='train', seed=config.env.seed, env_num=config.data.train_batch_size, group_n=group_n, start_server_id=0, resources_per_worker=resources_per_worker, max_interactions=config.env.max_steps)
+        _val_envs = build_appworld_envs(dataset_name=config.env.appworld.eval_split, seed=config.env.seed + 1000, env_num=config.data.val_batch_size, group_n=1, start_server_id=config.data.train_batch_size*group_n, resources_per_worker=resources_per_worker, max_interactions=config.env.max_steps)
         
         projection_f = partial(appworld_projection)
         envs = AppWorldEnvironmentManager(_envs, projection_f, config)
