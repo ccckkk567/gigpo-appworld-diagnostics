@@ -174,3 +174,36 @@ reward, parser, task pool, sampling, evaluator, package or training schedule cha
 Keep SwanLab 0.7.0 and rerun only train with a fresh run directory; no prepare.
 Local regression tests simulate init/media/scalar/finish failures and successful
 uploads. They do not establish HPC cloud connectivity or optimizer progress.
+
+## AppWorld 160668: confirmed SwanLab project/SDK incompatibility
+
+The training log continued through initial dev evaluation into the training
+loop with local diagnostics. This does not by itself prove any optimizer update.
+The tracker record shows SwanLab 0.7.0 POST /api/project returning HTTP 422.
+Using the authorized key, login and GET of the existing private project both
+returned 200. Reproducing the SDK's project request returned the explicit server
+message: "新版本项目请使用新版 SDK（版本号 >= 0.9.0）". Supplying the existing
+username and visibility returned the same message. No test run was created.
+
+PyPI metadata confirms SwanLab 0.9.0/0.9.1/0.10.2 require protobuf >=6.31.1,<7,
+whereas the current vLLM OpenTelemetry proto 1.26.0 requires protobuf >=3.19,<5.0.
+The locked training resolution uses protobuf 4.25.9. Do not upgrade the active
+training environment or substitute the algorithm's dependency stack for tracking.
+
+Add only a standalone post-hoc scalar exporter, its tests and documentation.
+It imports no trainer, model or environment. It requires a final manifest exit
+code, preserves original global_step values and source run/commit identity,
+hashes inputs, rejects conflicts/truncated input, and leaves unknowns omitted.
+Snapshots and SDK logs go outside the original result directory. The cloud run
+is explicitly suffixed -backfill; it is not a fresh experiment or new training.
+Raw trajectories and text samples remain in the original local logs. Completed
+upload receipts prevent accidental repeated upload; uncertain attempts require
+inspection. SDK finish returning is recorded separately from cloud verification.
+
+Run this utility with an independent modern SwanLab interpreter only after the
+job ends (the existing pilot environment has used 0.10.2). Training scripts,
+requirements, runtime logging and rewards are unchanged. Six synthetic local
+tests passed; no HPC backfill or cloud restoration has been performed.
+
+Metadata: https://pypi.org/pypi/swanlab/0.9.0/json and
+https://pypi.org/pypi/opentelemetry-proto/1.26.0/json.
