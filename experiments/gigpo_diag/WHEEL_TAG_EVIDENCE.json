@@ -1,0 +1,13 @@
+[
+  {
+    "package": "decord",
+    "version": "0.6.0",
+    "filename": "decord-0.6.0-py3-none-manylinux2010_x86_64.whl",
+    "url": "https://files.pythonhosted.org/packages/11/79/936af42edf90a7bd4e41a6cac89c913d4b47fa48a26b042d5129a9242ee3/decord-0.6.0-py3-none-manylinux2010_x86_64.whl",
+    "sha256": "51997f20be8958e23b7c4061ba45d0efcd86bffd5fe81c695d0befee0d442976",
+    "wheel_metadata": "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.36.2)\nRoot-Is-Purelib: false\nTag: cp36-cp36m-manylinux2010_x86_64\n\n",
+    "repaired_wheel_metadata": "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.36.2)\nRoot-Is-Purelib: false\nTag: py3-none-manylinux2010_x86_64\n\n",
+    "reason": "WHEEL cp36/cp36m contradicts the upstream py3/none filename; ctypes bindings, not a CPython 3.6 extension.",
+    "upstream_issue": "https://github.com/dmlc/decord/issues/356"
+  }
+]

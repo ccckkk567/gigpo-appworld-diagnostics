@@ -13,3 +13,6 @@ transformers==4.51.1
 ray==2.47.1
 tensordict==0.6.2
 peft==0.15.2
+pydantic==2.12.5
+fastapi==0.141.1
+decord==0.6.0

@@ -38,11 +38,14 @@ if [[ "$GIGPO_ENV" == appworld ]]; then
   export APPWORLD_ROOT="$GIGPO_APPWORLD_DATA"
   mkdir -p "$APPWORLD_ROOT"
   gigpo_pip_install 'appworld @ git+https://github.com/StonyBrookNLP/appworld.git@42b5bcf3cd334fee33f0c37c02070a9f5807add5' -c experiments/gigpo_diag/constraints-runtime.txt
+  "$GIGPO_VENV/bin/python" -I experiments/gigpo_diag/check_appworld_compat.py
   appworld install
   appworld download data --root "$APPWORLD_ROOT"
   gigpo_pip_install 'antlr4-python3-runtime==4.9.3' -c experiments/gigpo_diag/constraints-runtime.txt
 fi
+"$GIGPO_VENV/bin/python" -I experiments/gigpo_diag/repair_wheel_tags.py
 "$GIGPO_VENV/bin/python" -I -m pip check
+python -c 'import decord, numpy as np; a=np.arange(6,dtype=np.float32); np.testing.assert_array_equal(decord.ndarray.array(a).asnumpy(),a); print("DECORD_NATIVE_CHECK_PASSED",flush=True)'
 python -c 'import sys,verl,torch,vllm; print("RUNTIME",sys.executable,verl.__file__,torch.__version__,vllm.__version__,flush=True); assert torch.cuda.is_available()'
 "$GIGPO_VENV/bin/python" -I -m pip freeze > "$GIGPO_VENV/gigpo-pip-freeze.txt"
 # One shared immutable initialization; independent venvs and editable installations.

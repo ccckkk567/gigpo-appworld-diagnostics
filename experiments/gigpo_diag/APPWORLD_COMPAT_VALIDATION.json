@@ -1,0 +1,37 @@
+{
+  "incident_job": 160516,
+  "appworld_commit": "42b5bcf3cd334fee33f0c37c02070a9f5807add5",
+  "root_cause": "AppWorld common/datetime.py replaces GenerateSchema.match_type(self,obj); pydantic2.14.1 calls it with self,obj,origin.",
+  "source": "https://github.com/StonyBrookNLP/appworld/blob/42b5bcf3cd334fee33f0c37c02070a9f5807add5/src/appworld/common/datetime.py",
+  "local_python": "3.12.4",
+  "local_platform": "Windows",
+  "same_typeerror_reproduced_with": {
+    "pydantic": "2.14.1",
+    "fastapi": "0.143.0"
+  },
+  "fixed_cli_help_exit_code": 0,
+  "fixed_runtime_check": {
+    "status": "passed",
+    "versions": {
+      "appworld": "0.2.0.dev0",
+      "pydantic": "2.12.5",
+      "pydantic-core": "2.41.5",
+      "fastapi": "0.141.1",
+      "starlette": "1.8.0"
+    },
+    "checks": [
+      "AppWorld import before FastAPI",
+      "nullable and AppWorld DateTime model",
+      "HTTP request/response round trip",
+      "OpenAPI generation"
+    ],
+    "environment_tasks_executed": 0,
+    "training_updates": 0
+  },
+  "linux_py312_full_dependency_resolution_passed": true,
+  "hpc_appworld_install_after_fix_executed": false,
+  "actual_training_updates_verified": 0,
+  "decord_metadata_regression_tests_passed": 2,
+  "decord_native_linux_check_executed": false,
+  "shell_syntax_passed": true
+}

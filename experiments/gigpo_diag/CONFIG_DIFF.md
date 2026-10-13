@@ -36,3 +36,38 @@ vLLM's >=2.43,!=2.44.* requirement. SwanLab 0.7.0 accepts protobuf 4.x, required
 OpenTelemetry proto 1.26.0; SwanLab 0.10.2 instead requires protobuf >=6.31.1.
 Keep vLLM 0.8.5 and torch 2.6.0. This is a declared runtime dependency adaptation,
 not an exact recreation of the source README's Ray 2.49.0 installation sequence.
+
+## AppWorld prepare job 160516: Pydantic internal API mismatch
+
+The AppWorld package built/installed, but the first `appworld install` invocation
+failed during imports with `match_type() takes 2 positional arguments but 3 were
+given`. The pinned AppWorld source common/datetime.py replaces
+GenerateSchema.match_type(self, obj); installed Pydantic 2.14.1 calls it with an
+additional origin argument. Reproduced the identical TypeError locally with the
+same fixed AppWorld source, Pydantic 2.14.1 and FastAPI 0.143.0 in a clean Python
+3.12 environment. Dependency metadata resolution alone did not detect this
+runtime monkey-patch incompatibility.
+
+Pin Pydantic 2.12.5 and FastAPI 0.141.1 in both runtime requirements and constraints.
+Pydantic selects its exact pydantic-core 2.41.5. These pins satisfy the unchanged
+AppWorld source's requirements and the complete Linux/Python3.12 dependency
+graph, including vLLM/Ray/SwanLab. No AppWorld source, datetime patch, evaluator,
+reward or training configuration edits. AppWorld CLI --help now exits 0 locally
+(UTF-8 output enabled on Windows), and its actual DateTime/nullable-field model,
+FastAPI request/response and OpenAPI schema checks pass.
+
+The same prepare job runs check_appworld_compat.py after installing AppWorld and
+before unpacking its apps. It saves appworld-compat-check.json in the job TMPDIR;
+failure blocks training. This is an installation check with no environment task
+or model. The actual HPC app unpacking, data download, services and training are
+still unverified. Existing venv and installed native libraries are reused. Retry
+only this project's submit.sh after pulling, not bootstrap_all.sh.
+
+AppWorld's native project dependencies also install decord 0.6.0, the same exact
+PyPI wheel with an inconsistent cp36 internal tag already verified during the
+ALFWorld 160510 incident. Reuse that version/byte/platform-guarded WHEEL+RECORD
+repair with decord-only evidence; backup original metadata in this project's
+venv, retain full pip check and require a native decord array round trip. The
+TextWorld repair and ALFWorld environment check are not applied here. This avoids
+a known subsequent metadata failure without changing library code. Native Linux
+decord execution still awaits the HPC job; no local GPU/runtime success claimed.
