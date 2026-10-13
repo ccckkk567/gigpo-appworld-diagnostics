@@ -6,8 +6,8 @@
   "resolver": "uv 0.11.7 pip compile",
   "dependency_resolution_passed": true,
   "resolved_package_count": 252,
-  "resolution_input_sha256": "30843623d44bb8e2299d68e9a2ad41f121b09b87f782eaa24f3ad510fc014461",
-  "resolved_graph_sha256": "7c575b8757c3fe36086669f2f35054297a2965f97f359df53f0b0bbb1bd6b3bc",
+  "resolution_input_sha256": "02df0983a48af065d5efd8ae8164246d3442f8fe5d93aca420d3e1af0de894ff",
+  "resolved_graph_sha256": "c5ea9ed50315ba4ced4ef10c11d8cd6f2d6d99a52a7bdabea30f5b6244527a96",
   "regression_tests_passed": 5,
   "shell_syntax_passed": true,
   "checks": [
@@ -22,5 +22,5 @@
   "training_launcher_changed": false,
   "gpu_install_of_repaired_setup_executed": false,
   "actual_training_updates_verified": 0,
-  "latest_dependency_repair": "Pin pydantic2.12.5; the full resolver selects fastapi0.141.1, also pinned after a successful actual CLI/request check."
+  "latest_dependency_repair": "Pin pyarrow19.0.1 for the existing numpy1.26.4/datasets3.6.0 stack; actual local Parquet and NumPy round trips passed."
 }

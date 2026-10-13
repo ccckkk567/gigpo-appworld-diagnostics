@@ -1,0 +1,30 @@
+{
+  "incident_job": 160563,
+  "incident_environment": "alfworld",
+  "applies_to": "appworld",
+  "confirmed_alfworld_progress": [
+    "pip check passed",
+    "native decord call passed",
+    "ALFWorld reset and look passed on 3553-game train pool",
+    "torch CUDA available",
+    "pinned model ready"
+  ],
+  "root_cause": "Installed PyArrow26.0.0 import requires numpy>=2, but reference runtime pins numpy1.26.4. PyArrow was not constrained.",
+  "local_platform": "Windows",
+  "local_python": "3.12.4",
+  "actual_local_data_stack_check": {
+    "status": "passed",
+    "versions": {
+      "numpy": "1.26.4",
+      "pyarrow": "19.0.1",
+      "datasets": "3.6.0",
+      "pandas": "3.0.6"
+    },
+    "rows": 16,
+    "environment_rollouts": 0,
+    "training_updates": 0
+  },
+  "full_linux_py312_resolution_passed": true,
+  "hpc_data_preparation_after_fix_executed": false,
+  "actual_training_updates_verified": 0
+}

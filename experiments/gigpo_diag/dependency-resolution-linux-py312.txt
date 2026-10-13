@@ -168,7 +168,7 @@ ptyprocess==0.7.0
 pure-eval==0.2.4
 py-cpuinfo==9.0.0
 py-spy==0.4.2
-pyarrow==26.0.0
+pyarrow==19.0.1
 pyasn1==0.6.4
 pyasn1-modules==0.4.2
 pybind11==3.1.0

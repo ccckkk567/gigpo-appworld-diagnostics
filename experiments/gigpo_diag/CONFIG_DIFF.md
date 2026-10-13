@@ -71,3 +71,23 @@ venv, retain full pip check and require a native decord array round trip. The
 TextWorld repair and ALFWorld environment check are not applied here. This avoids
 a known subsequent metadata failure without changing library code. Native Linux
 decord execution still awaits the HPC job; no local GPU/runtime success claimed.
+
+## Shared data stack: ALFWorld prepare job 160563
+
+ALFWorld's full pip check, native decord call, actual environment reset/look,
+torch CUDA availability and pinned model preparation now passed. The final data
+preparation import then failed: installed PyArrow 26.0.0 requires NumPy >=2.0,
+while these reference runtimes pin NumPy 1.26.4. Dependency metadata resolution
+and pip check alone did not detect this runtime restriction. Training has not
+started in the supplied log.
+
+Keep NumPy 1.26.4 and datasets 3.6.0, explicitly pin PyArrow 19.0.1 in requirements
+and constraints. All three complete Linux/Python3.12 dependency graphs resolve.
+Actual local Python3.12 checks passed datasets mapping, nested prompt/extra_info
+Parquet write/read, pandas/pyarrow reads and NumPy conversion. Add the same small
+check after pip check in the existing prepare job; outputs are dependency checks
+under the job TMPDIR, not experimental rollouts. Do not change native prepare.py,
+placeholder sizes, task distribution, reward or trainer. Existing environments,
+model files and native libraries are reused. Other projects receive the same
+version constraint to prevent this shared failure; their jobs are not restarted
+or cancelled automatically. HPC data preparation/real training remain unverified.

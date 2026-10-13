@@ -45,6 +45,7 @@ if [[ "$GIGPO_ENV" == appworld ]]; then
 fi
 "$GIGPO_VENV/bin/python" -I experiments/gigpo_diag/repair_wheel_tags.py
 "$GIGPO_VENV/bin/python" -I -m pip check
+"$GIGPO_VENV/bin/python" -I experiments/gigpo_diag/check_data_stack.py
 python -c 'import decord, numpy as np; a=np.arange(6,dtype=np.float32); np.testing.assert_array_equal(decord.ndarray.array(a).asnumpy(),a); print("DECORD_NATIVE_CHECK_PASSED",flush=True)'
 python -c 'import sys,verl,torch,vllm; print("RUNTIME",sys.executable,verl.__file__,torch.__version__,vllm.__version__,flush=True); assert torch.cuda.is_available()'
 "$GIGPO_VENV/bin/python" -I -m pip freeze > "$GIGPO_VENV/gigpo-pip-freeze.txt"
