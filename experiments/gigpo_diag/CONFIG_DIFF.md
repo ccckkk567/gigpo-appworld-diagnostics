@@ -293,3 +293,57 @@ unverified until a new user-submitted training job runs.
 
 Pinned source (native timeout and remote helper):
 https://github.com/StonyBrookNLP/appworld/blob/42b5bcf3cd334fee33f0c37c02070a9f5807add5/src/appworld/environment.py
+
+
+## AppWorld 160868: capture pending requests and slow native execution stages
+
+Run appworld-qwen25-15b-gigpo-160868-20261013T135415Z used b27468a.
+The first real actor update completed after 16 dev and 128 training episodes;
+reference success remained zero and the second train rollout failed with an
+execute HTTP read timeout at 160 seconds (worker 28, port 44483). The latest
+saved native environment_io.md is interaction 28 of task e85d92a_1, reset 2:
+an unexpected-indent rejection. The service log shows its subsequent save_logs
+and task_completed requests returned 200. This is the last completed request,
+not evidence of what the missing next request executed or where it stalled.
+There is no completed checkpoint at the native ten-update save interval.
+
+Do not extend deadlines again or claim a confirmed root cause. Add process-local
+observation to the native service wrapper: flush original request code, task,
+experiment, interaction counter and hash before execute; record entry/exit of
+syntax checking, shell execution, state save and log save. Native methods still
+run once with unchanged arguments, results and exceptions. At 110 seconds, a
+faulthandler C watchdog writes one stack snapshot to a separate service file;
+it does not stop execution or use SIGALRM. This distinguishes code execution
+from parsing/post-execution I/O if the next run stalls again. Stack and journal
+files are services/execute-PID.stacks.log and services/execute-PID.jsonl.
+
+Both files are opened before AppWorld installs its execution safety guard.
+Diagnostic output is written to those files rather than captured model output.
+Linux elapsed times use CLOCK_MONOTONIC, outside AppWorld's frozen task time.
+Diagnostic write errors are nonfatal. Existing 100s code / 160s HTTP timeouts,
+LibCST rejection repair, rewards, prompts, task sampling, and optimizer remain
+unchanged. This commit adds evidence capture, not a demonstrated timeout fix.
+The underlying cause and recovery still require a bounded HPC rerun.
+
+Validation: all 18 local AppWorld client/parser/execution-trace tests passed.
+This includes the real native Python shell with SafetyGuard enabled, ensuring
+file diagnostics do not enter captured model feedback. Scaled slow-call tests
+produce a stack snapshot; these are not a reproduction of the HPC stall.
+
+Reference comparison requested by the user: pengzj1/revisiting_opd at commit
+3379dde59c323cedd30d400cc48dfffac71470f3 versus XiaofengLin7/in-context-explorer.
+Both AppWorld worker files have identical Git blob
+0984e9268decdabcd5a3f07b0cd70cf93c4452db and directly call env.execute; no new
+execution-timeout recovery is present. Prompts and action projection also match
+our upstream files (blobs 0d3c163ad23b8ab88fec6a7ce25171b6153df33c and
+d6ccbd74aa3675ed4220c3fd6867a64a516be131). Its startup timeout is a readiness
+check only, not an execution deadline. Its script uses a 3B model, group size 5,
+max_response_length 20480, top_p 0.9, mean_std_norm and similarity grouping.
+Those are distinct training settings, not demonstrated fixes for this stall.
+Its service script defaults to 4*1+32=36 services while its training script
+requires 16*5+128=208; defaults must be coordinated before using them.
+
+Sources:
+https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/examples/gigpo_trainer/run_appworld.sh
+https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/agent_system/environments/env_package/appworld/envs.py
+https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/examples/env_server/start_appworld_server.sh
