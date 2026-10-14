@@ -365,3 +365,11 @@ No download or prepare required. Keep 1.5B microbatch=2, vLLM utilization=0.6,
 retain two checkpoints and start from initial weights (resume disabled).
 256G sufficiency at checkpoint time is not yet established. This branch is
 independent of the 7B 320G training checkout.
+
+## Checkpoint cadence restored at user request (2026-10-14)
+
+Current setting: trainer.save_freq=10, trainer.max_actor_ckpt_to_keep=2.
+This supersedes the every-update checkpoint setting described above.
+Save every ten training updates; RAM and all other training settings stay unchanged.
+This reduces save frequency but does not reduce the peak memory of an individual save.
+

@@ -66,7 +66,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name="$GIGPO_RUN_ID" \
     trainer.n_gpus_per_node=$N_GPUS \
     trainer.nnodes=1 \
-    trainer.save_freq=1 \
+    trainer.save_freq=10 \
     trainer.max_actor_ckpt_to_keep=2 \
     trainer.test_freq=5 \
     trainer.total_epochs=150 \
