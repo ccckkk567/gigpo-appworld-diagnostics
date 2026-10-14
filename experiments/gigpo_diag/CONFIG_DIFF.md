@@ -452,3 +452,18 @@ by the preflight. No new GPU rollout or production-task replay was run locally.
 Python exception and signal semantics:
 https://docs.python.org/3/library/exceptions.html#BaseException
 https://docs.python.org/3/library/signal.html#execution-of-python-signal-handlers
+
+## Job 161231: host-memory OOM at the first checkpoint
+
+The HPC timeout preflight passed and training completed one update. During
+global_step_1 checkpoint saving, a Ray actor died and Slurm explicitly reported
+an oom_kill event. Accounting confirms OUT_OF_MEMORY with ReqMem=256G and
+MaxRSS=156032272K (about 148.8 GiB); sampled MaxRSS is not a reliable measure of
+the whole job's instantaneous cgroup peak or the failed allocation size.
+
+At the user's request, increase the AppWorld 7B host-memory reservation from
+256G to 320G for the next full training attempt. This is an experimental margin,
+not a measured sufficient capacity. Keep two GPUs, 32 CPUs, 17:50 wall time,
+checkpoint frequency/retention and training settings unchanged. The partial
+global_step_1 checkpoint has not been verified complete or resumable; the
+existing resume_mode=disable remains in effect.

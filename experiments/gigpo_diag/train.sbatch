@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:2
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=256G
+#SBATCH --mem=320G
 #SBATCH --time=17:50:00
 #SBATCH --output=/scratch/prjsnnn0000269/Students/shuming/cjk/logs/ggp-appworld-7b-train-%j.out
 export GIGPO_ENV=appworld
