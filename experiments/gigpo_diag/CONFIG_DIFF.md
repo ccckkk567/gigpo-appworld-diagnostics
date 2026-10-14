@@ -392,3 +392,63 @@ https://huggingface.co/api/models/Qwen/Qwen2.5-7B-Instruct/revision/a09a35458c70
 https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/a09a35458c702b33eeacc393d103063234e8bc28/config.json
 
 Local verification: five offline integrity tests and all modified shell/Python syntax checks passed. The inherited 18 client/parser/execution-trace regressions passed before branching. No local 7B weights or GPU training were run; HPC capacity and learning remain unverified.
+
+## Job 160956: policy retry loop catches the native execution alarm
+
+Actual commit 58a2305b95c06af033fb3b442fcdcbba0a41ba2e loaded and verified the
+existing 7B weights, completed two optimizer updates, then failed during the
+third training rollout (HTTP read deadline 160 seconds). Worker 92 / port 57531 /
+server PID 203779 / task d0b1f43_2 / reset 3 stalled at interaction 36. Execute
+serial 136 passed syntax checking in about 0.056 seconds, entered shell_run_cell,
+and never recorded a phase end. At 110 seconds the main thread was still in the
+policy's API call inside a while True / try / except Exception loop. The handler
+only prints the error and neither breaks nor changes the failing request.
+
+The pinned appworld.common.time.TimeoutError inherits Exception; its SIGALRM is
+one-shot. A policy handler can therefore catch it and continue indefinitely. A
+CPU Linux reproduction using the pinned timeout function definitions and real
+IPython caught the alarm and continued beyond its deadline. This reproduces the
+mechanism consistent with the recorded stall; the production action's exact API
+responses and signal-delivery instant were not available in the returned logs.
+
+The server now installs appworld_timeout.py before execution tracing. It keeps
+the native 100-second cell budget and 160-second HTTP grace, but raises a private
+BaseException control signal. Ordinary policy except Exception handlers cannot
+consume it. The shell wrapper handles both a directly raised deadline and an
+IPython-captured deadline, returning None to native AppWorld.execute. That native
+path records the original code and timeout feedback, consumes one interaction,
+disables SafetyGuard, saves state/logs, and resets the API request counter. No
+policy action is rewritten or retried; task state already changed before timeout
+is retained under native semantics. Ordinary errors, transport failures, rewards,
+task completion, prompts, sampling and GiGPO advantages are not replaced.
+
+This is not a general process-isolation watchdog: bare except / BaseException
+handlers and uninterruptible native extensions can still prevent timely exit.
+The pending-action journal and 110-second stack dump remain enabled. An existing
+real timer or non-main-thread shell invocation fails explicitly; the handler is
+restored and timer canceled after each cell.
+
+Before model/Ray/services initialization, train.sbatch runs a subprocess-bounded
+CPU preflight with a one-second synthetic retry loop in native AppWorld/IPython
+and SafetyGuard, then checks a second cell succeeds. No benchmark DB or GPU is
+used. The report is appworld_timeout_preflight.json. A failed/hung probe aborts
+before model loading. The deployment runtime and SIGALRM must pass this check.
+
+Operational checkpoint change for the slow 7B run: save after every completed
+update (previously every 10), retaining the latest two actor checkpoints through
+the trainer's existing retention setting. Job 160956 had none at two updates;
+it cannot resume those weights. The new setting adds checkpoint I/O/disk usage
+but keeps 150 epochs, 2 GPUs, 17:50 wall time, and optimizer/batch settings.
+
+Validation: 24 local AppWorld client/parser/trace/deadline tests pass. Native
+AppWorld/IPython/SafetyGuard feedback, saved original input, one interaction and
+the next successful cell are tested with deterministic alarm delivery on Windows.
+Two additional tests pass on Linux with real SIGALRM and IPython: the pinned
+original timer is caught by the retry loop, and the repaired timer stops policy
+calls at one second and restores signal state. Linux uses the existing pure
+Python IPython files; full native AppWorld deployment is checked on the HPC node
+by the preflight. No new GPU rollout or production-task replay was run locally.
+
+Python exception and signal semantics:
+https://docs.python.org/3/library/exceptions.html#BaseException
+https://docs.python.org/3/library/signal.html#execution-of-python-signal-handlers

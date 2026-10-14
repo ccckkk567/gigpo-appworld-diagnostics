@@ -62,6 +62,8 @@ def record_provenance(config):
             'code_execution_seconds': timeout,
             'execute_http_read_seconds': timeout + EXECUTE_HTTP_GRACE_SECONDS if timeout is not None else None,
             'execute_http_grace_seconds': EXECUTE_HTTP_GRACE_SECONDS,
+            'cell_deadline_control': 'SIGALRM with private BaseException; native timeout feedback',
+            'cell_deadline_limits': 'bare except/BaseException handlers and uninterruptible native calls are not covered',
             'automatic_execute_retries': 0}
     for name, value in [('environment_provenance.json', provenance), ('model_identity.json', identity)]:
         (output/name).write_text(json.dumps(value, indent=2), encoding='utf-8')
@@ -75,6 +77,10 @@ def record_provenance(config):
                 'reference_schedule_epochs':config.trainer.total_epochs, 'formal_holdout_details_saved':False}
     (output/'RUN_MANIFEST.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     snapshot = output/'implementation_snapshot'
+    for name in ('appworld_timeout.py', 'check_appworld_timeout.py'):
+        dest = snapshot/'experiments/gigpo_diag'/name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(Path(__file__).parent/name, dest)
     for name in ('gigpo/core_gigpo.py','agent_system/environments/env_manager.py','agent_system/multi_turn_rollout/rollout_loop.py','verl/trainer/ppo/ray_trainer.py','verl/utils/tracking.py','experiments/gigpo_diag/diagnostics.py','experiments/gigpo_diag/services.py','experiments/gigpo_diag/appworld_server.py','experiments/gigpo_diag/appworld_execution_trace.py','experiments/gigpo_diag/appworld_client.py','agent_system/environments/env_package/appworld/envs.py','experiments/gigpo_diag/verify_existing_model.py','experiments/gigpo_diag/model_files_7b.json','experiments/gigpo_diag/common.sh','experiments/gigpo_diag/launch_reference.sh','experiments/gigpo_diag/train.sbatch','experiments/gigpo_diag/SOURCE.json','experiments/gigpo_diag/CONFIG_DIFF.md'):
         dest=snapshot/name
         dest.parent.mkdir(parents=True, exist_ok=True)
