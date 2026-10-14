@@ -21,6 +21,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import json
 import os
+import random
 import uuid
 from collections import defaultdict
 from contextlib import contextmanager
@@ -54,6 +55,9 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.checkpoint.checkpoint_transaction import (
+    atomic_text, begin_checkpoint, publish_checkpoint, rotate_complete_checkpoints, validate_checkpoint,
+)
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -1054,38 +1058,45 @@ class RayPPOTrainer:
             )
 
     def _save_checkpoint(self):
-        # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
-
-        print(f"local_global_step_folder: {local_global_step_folder}")
-        actor_local_path = os.path.join(local_global_step_folder, "actor")
-
-        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "actor")
-
-        remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
-        if remove_previous_ckpt_in_save:
-            print("Warning: remove_previous_ckpt_in_save is deprecated," + " set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead")
-        max_actor_ckpt_to_keep = self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
-        max_critic_ckpt_to_keep = self.config.trainer.get("max_critic_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
-
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep)
-
+        if self.config.trainer.default_hdfs_dir is not None:
+            raise NotImplementedError("Atomic complete checkpoint publication currently requires local/shared filesystem")
+        root = self.config.trainer.default_local_dir
+        stage, final = begin_checkpoint(root, self.global_steps)
+        print(f"Saving complete checkpoint through {stage}")
+        # Workers return only after every model/optimizer/extra rank file is
+        # complete. No component is allowed to rotate older checkpoints.
+        self.actor_rollout_wg.save_checkpoint(str(stage / "actor"), None, self.global_steps, max_ckpt_to_keep=None)
+        components = ["actor"]
         if self.use_critic:
-            critic_local_path = os.path.join(local_global_step_folder, "critic")
-            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{self.global_steps}", "critic")
-            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
-
-        # save dataloader
-        dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
-        dataloader_state_dict = self.train_dataloader.state_dict()
-        torch.save(dataloader_state_dict, dataloader_local_path)
-
-        # latest checkpointed iteration tracker (for atomic usage)
-        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
-        with open(local_latest_checkpointed_iteration, "w") as f:
-            f.write(str(self.global_steps))
-        diag.save_sampler(self, local_global_step_folder)
-        diag.checkpoint(local_global_step_folder, self.global_steps)
+            self.critic_wg.save_checkpoint(str(stage / "critic"), None, self.global_steps, max_ckpt_to_keep=None)
+            components.append("critic")
+        def durable_save(value, path):
+            with open(path, "wb") as stream:
+                torch.save(value, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+        durable_save(self.train_dataloader.state_dict(), stage / "data.pt")
+        # Save the driver RNG, epoch and sampler at this update boundary. This
+        # complements the individual FSDP ranks' model/optimizer/scheduler/RNG.
+        samplers = {}
+        for name in ("envs", "val_envs"):
+            inner = getattr(getattr(self, name, None), "envs", None)
+            if hasattr(inner, "sampler_state"):
+                samplers[name] = inner.sampler_state()
+        atomic_text(stage / "environment_sampler.json", json.dumps(samplers, indent=2) + "\n")
+        durable_save({"global_step": self.global_steps, "epoch": self._checkpoint_epoch,
+                      "torch_rng": torch.get_rng_state(), "numpy_rng": np.random.get_state(),
+                      "python_rng": random.getstate()}, stage / "driver_state.pt")
+        publish_checkpoint(stage, final, self.global_steps, components)
+        remove_previous = self.config.trainer.get("remove_previous_ckpt_in_save", False)
+        keep = 1 if remove_previous else self.config.trainer.get("max_actor_ckpt_to_keep", None)
+        if self.use_critic:
+            critic_keep = 1 if remove_previous else self.config.trainer.get("max_critic_ckpt_to_keep", None)
+            # A complete training checkpoint retains all roles together.
+            keep = None if keep is None or critic_keep is None else max(keep, critic_keep)
+        removed = rotate_complete_checkpoints(root, keep)
+        print(f"Complete checkpoint published: {final}; removed={removed}")
+        diag.checkpoint(final, self.global_steps)
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
@@ -1115,8 +1126,11 @@ class RayPPOTrainer:
                     working_dir = os.getcwd()
                     global_step_folder = os.path.join(working_dir, global_step_folder)
         print(f"Load from checkpoint folder: {global_step_folder}")
-        # set global step
-        self.global_steps = int(global_step_folder.split("global_step_")[-1])
+        # Refuse partial/legacy snapshots for automatic full training resume.
+        manifest = validate_checkpoint(global_step_folder)
+        if ("critic" in manifest["components"]) != self.use_critic:
+            raise ValueError("Checkpoint roles do not match this trainer")
+        self.global_steps = int(manifest["global_step"])
 
         print(f"Setting global step to {self.global_steps}")
         print(f"Resuming from {global_step_folder}")
@@ -1129,14 +1143,26 @@ class RayPPOTrainer:
         if self.use_critic:
             self.critic_wg.load_checkpoint(critic_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
 
-        # load dataloader,
-        # TODO: from remote not implemented yet
-        dataloader_local_path = os.path.join(global_step_folder, "data.pt")
-        if os.path.exists(dataloader_local_path):
-            dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
-            self.train_dataloader.load_state_dict(dataloader_state_dict)
-        else:
-            print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
+        dataloader_state = torch.load(os.path.join(global_step_folder, "data.pt"), weights_only=False)
+        self.train_dataloader.load_state_dict(dataloader_state)
+        del dataloader_state
+        driver = torch.load(os.path.join(global_step_folder, "driver_state.pt"), weights_only=False)
+        if driver["global_step"] != self.global_steps:
+            raise ValueError("Driver/checkpoint step mismatch")
+        self._resume_epoch = int(driver["epoch"])
+        with open(os.path.join(global_step_folder, "environment_sampler.json"), encoding="utf-8") as stream:
+            samplers = json.load(stream)
+        for name, state in samplers.items():
+            inner = getattr(getattr(self, name, None), "envs", None)
+            if not hasattr(inner, "restore_sampler_state"):
+                raise ValueError(f"Cannot restore environment sampler: {name}")
+            inner.restore_sampler_state(state)
+        torch.set_rng_state(driver["torch_rng"])
+        np.random.set_state(driver["numpy_rng"])
+        random.setstate(driver["python_rng"])
+        self._resume_driver_rng = driver
+        self._complete_checkpoint_restored = True
+        print(f"Complete training state restored at update {self.global_steps}, epoch {self._resume_epoch}")
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen"):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
@@ -1177,11 +1203,12 @@ class RayPPOTrainer:
         # load checkpoint before doing anything
         self._load_checkpoint()
         diag.set_update(self.global_steps)
-        diag.restore_sampler(self)
+        if not getattr(self, "_complete_checkpoint_restored", False):
+            diag.restore_sampler(self)
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+        if not self.global_steps and self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
@@ -1196,8 +1223,16 @@ class RayPPOTrainer:
         self.global_steps += 1
         last_val_metrics = None
 
-        for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+        for epoch in range(getattr(self, "_resume_epoch", 0), self.config.trainer.total_epochs):
+            self._checkpoint_epoch = epoch
+            checkpoint_iterator = iter(self.train_dataloader)
+            if hasattr(self, "_resume_driver_rng"):
+                driver = self._resume_driver_rng
+                torch.set_rng_state(driver["torch_rng"])
+                np.random.set_state(driver["numpy_rng"])
+                random.setstate(driver["python_rng"])
+                del self._resume_driver_rng
+            for batch_dict in checkpoint_iterator:
                 metrics = {}
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
