@@ -426,6 +426,12 @@ class TrajectoryCollector:
             
             text_actions = self.tokenizer.batch_decode(batch.batch['responses'], skip_special_tokens=True)
             diag_raw_actions = list(text_actions)
+            # AppWorld's bounded protocol records the original response and
+            # exact native group/trajectory identity before any side effects.
+            # This hook does not alter grouping, masks, rewards or sampling.
+            prepare_context = getattr(getattr(envs, 'envs', None), 'set_rollout_context', None)
+            if prepare_context is not None:
+                prepare_context(uid_batch, traj_uid, _step, diag_raw_actions, active_masks)
             next_obs, rewards, dones, infos = envs.step(text_actions)
             diag.step(diag_ctx, batch, batch_input, diag_raw_actions, obs, next_obs, rewards, dones, infos, active_masks, _step, self.tokenizer)
             # breakpoint()

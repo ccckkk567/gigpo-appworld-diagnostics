@@ -27,6 +27,20 @@ class ExecutionTrace:
         self.serial = 0
         self.active = None
         self.available = True
+        self.control = None
+        self.started = None
+        if os.environ.get('GIGPO_RESOURCE_PROFILE'):
+            # Open before SafetyGuard is enabled; never open policy-time files.
+            self.control = (directory / f'request-{os.getpid()}.json').open('w+', encoding='utf-8')
+
+    def publish(self, status, **fields):
+        if self.control is not None:
+            row = {'request': self.active, 'status': status, 'started': self.started,
+                   'pid': os.getpid(), 'clock': clock(), **fields}
+            self.control.seek(0)
+            self.control.write(json.dumps(row, ensure_ascii=False))
+            self.control.truncate()
+            self.control.flush()
 
     def write(self, event, **fields):
         try:
@@ -58,6 +72,8 @@ class ExecutionTrace:
         self.cancel_stack()
         self.journal.close()
         self.stacks.close()
+        if self.control is not None:
+            self.control.close()
 
 
 def install_execution_trace(directory=None, stack_after_seconds=110):
@@ -75,6 +91,8 @@ def install_execution_trace(directory=None, stack_after_seconds=110):
     try:
         trace = ExecutionTrace(directory, stack_after_seconds)
     except Exception as exc:
+        if os.environ.get('GIGPO_RESOURCE_PROFILE'):
+            raise RuntimeError('Bounded runtime requires the execution control journal') from exc
         print(f'APPWORLD_EXECUTION_TRACE unavailable: {type(exc).__name__}', flush=True)
         return None
 
@@ -86,6 +104,7 @@ def install_execution_trace(directory=None, stack_after_seconds=110):
             if trace.active is None:
                 return original(*args, **kwargs)
             trace.write('phase_begin', phase=label)
+            trace.publish('active', phase=label)
             try:
                 result = original(*args, **kwargs)
             except BaseException as exc:
@@ -109,7 +128,10 @@ def install_execution_trace(directory=None, stack_after_seconds=110):
         trace.serial += 1
         trace.active = {'serial': trace.serial, 'task_id': self.task_id,
                         'experiment_name': getattr(self, 'experiment_name', None),
-                        'interactions_before': self.num_interactions}
+                        'interactions_before': self.num_interactions,
+                        'code_sha256': hashlib.sha256(code.encode('utf-8')).hexdigest()}
+        trace.started = clock()
+        trace.publish('active', phase='execute')
         trace.write('execute_begin', code=code,
                     code_sha256=hashlib.sha256(code.encode('utf-8')).hexdigest() if isinstance(code, str) else None)
         armed = trace.arm_stack()
@@ -117,9 +139,11 @@ def install_execution_trace(directory=None, stack_after_seconds=110):
             result = original(self, code)
         except BaseException as exc:
             trace.write('execute_end', status='raised', error_type=type(exc).__name__)
+            trace.publish('failed', error_type=type(exc).__name__)
             raise
         else:
             trace.write('execute_end', status='returned', interactions_after=self.num_interactions)
+            trace.publish('complete', interactions_after=self.num_interactions, output=result)
             return result
         finally:
             if armed:

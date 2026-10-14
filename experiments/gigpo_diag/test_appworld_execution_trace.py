@@ -2,6 +2,7 @@
 import atexit
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -85,8 +86,14 @@ class AppWorldExecutionTraceTests(unittest.TestCase):
         world.output_db_home_path_on_disk = str(self.directory / 'synthetic-db')
         AppWorld._save_state = lambda self, directory: None
         AppWorld.save_logs = lambda self: None
-        self.install()
-        self.assertEqual(world.execute('print("native output")'), 'native output\n')
+        with mock.patch.dict(os.environ, {'GIGPO_RESOURCE_PROFILE': 'enabled-control-test'}):
+            self.install()
+            self.assertEqual(world.execute('print("native output")'), 'native output\n')
+        acknowledgement = json.loads((self.directory / f'request-{os.getpid()}.json').read_text())
+        self.assertEqual(acknowledgement['status'], 'complete')
+        self.assertEqual(acknowledgement['interactions_after'], 29)
+        self.assertEqual(acknowledgement['output'], 'native output\n')
+        self.assertEqual(acknowledgement['request']['experiment_name'], 'synthetic-w28-r2')
         self.assertEqual(world.num_interactions, 29)
         rows = self.rows()
         phases = {r['phase'] for r in rows if r['event'] == 'phase_begin'}

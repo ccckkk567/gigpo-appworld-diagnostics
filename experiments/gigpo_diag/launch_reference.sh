@@ -8,7 +8,7 @@ train_data_size=16
 val_data_size=16
 group_size=8
 mode="mean_norm" # "mean_norm" or "mean_std_norm"
-N_GPUS=${GIGPO_NUM_GPUS:-2}
+N_GPUS=${GIGPO_NUM_GPUS:-4}
 if [[ ! -f "$GIGPO_DATA_DIR/text/train.parquet" || ! -f "$GIGPO_DATA_DIR/text/test.parquet" ]]; then
 python3 -m examples.data_preprocess.prepare \
     --mode 'text' \

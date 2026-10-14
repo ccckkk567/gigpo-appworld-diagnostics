@@ -18,6 +18,7 @@ _update = 0
 _batch_serial = 0
 _adv_ids = []
 _pending = {}
+_runtime_metrics = {}
 _optimizer_steps = 0
 
 
@@ -113,6 +114,8 @@ def begin_rollout(obs, infos, uids, trajs, is_train, config):
                "native_score_initial": info.get("score"), "initial_state_hash": info.get("initial_state_hash"),
                "service_identity": info.get("service_identity"), "active_steps": 0,
                "reference_success": False, "strict_success": None, "env_reward_sum": 0.0,
+               "resource_terminal": False, "native_evaluator_success": None,
+               "budgeted_task_success": None, "resource_protocol": info.get("resource_protocol"),
                "format_valid_count": 0, "extraction_count": 0, "fallback_count": 0,
                "held_observed_objects": [],
                "events": {}, "termination": "budget", "detail_selected": detail and groups[i] in selected}
@@ -181,6 +184,9 @@ def step(ctx, batch, batch_input, raw, obs, next_obs, rewards, dones, infos, act
         done = bool(plain(dones[i]))
         won = bool(info.get("won", False))
         strict = info.get("strict_success") if env == "scienceworld" else (won if done or step_index + 1 == ctx["config"].env.max_steps else None)
+        resource_terminal = bool(info.get("resource_terminal", False))
+        if env == "appworld" and info.get("protocol") == "bounded_runtime_v1":
+            strict = info.get("native_evaluator_success")
         event = events(command, feedback, info, env)
         if env == "alfworld":
             held = ep["held_observed_objects"]
@@ -205,6 +211,10 @@ def step(ctx, batch, batch_input, raw, obs, next_obs, rewards, dones, infos, act
                "event_evidence_ref": ids[i],
                "format_valid_native": valid, "extraction_success": parsed, "fallback": not parsed,
                "execution": execution, "done_raw": done, "reference_success": won, "strict_success": strict,
+               "resource_terminal": resource_terminal, "resource_protocol": info.get("protocol"),
+               "native_evaluator_success": info.get("native_evaluator_success"),
+               "budgeted_task_success": info.get("budgeted_task_success") if done else None,
+               "resource_event": info.get("resource_event"),
                "score_pre": ctx["prev_score"][i], "score_post": score,
                "env_reward": float(plain(rewards[i])), "events": event,
                "input_truncated": False if ctx["config"].data.truncation == "error" else None,
@@ -216,6 +226,11 @@ def step(ctx, batch, batch_input, raw, obs, next_obs, rewards, dones, infos, act
         ep["extraction_count"] += int(parsed)
         ep["fallback_count"] += int(not parsed)
         ep["reference_success"] = ep["reference_success"] or won
+        if env == "appworld":
+            ep["resource_terminal"] = ep["resource_terminal"] or resource_terminal
+            if done:
+                ep["native_evaluator_success"] = info.get("native_evaluator_success")
+                ep["budgeted_task_success"] = info.get("budgeted_task_success")
         if strict is not None:
             ep["strict_success"] = bool(strict)
         ep["native_score_final"] = score
@@ -257,6 +272,15 @@ def end_rollout(ctx):
                "extraction": rate([s["extraction_success"] for s in steps], "active_policy_step"),
                "fallback": rate([s["fallback"] for s in steps], "active_policy_step"),
                "generic_anchor": rate([s["generic_feedback_anchor"] for s in steps], "active_policy_step")}
+    if os.environ.get('GIGPO_RESOURCE_PROFILE'):
+        metrics['resource_terminal'] = rate([e['resource_terminal'] for e in eps], 'episode')
+        metrics['native_evaluator_success'] = rate([e['native_evaluator_success'] for e in eps], 'known_native_evaluations')
+        metrics['budgeted_task_success'] = rate([e['budgeted_task_success'] for e in eps], 'episode')
+        prefix = 'train' if eps[0]['sample_kind'] == 'train_rollout' else 'eval'
+        for key in ('resource_terminal', 'native_evaluator_success', 'budgeted_task_success'):
+            if metrics[key]['value'] is not None:
+                _runtime_metrics[f'bounded_runtime/{prefix}/{key}'] = metrics[key]['value']
+            _runtime_metrics[f'bounded_runtime/{prefix}/{key}_unknown_count'] = metrics[key]['unknown_count']
     write("rollout_metrics", [{"rollout_batch_id": ctx["batch_id"], "sample_kind": eps[0]["sample_kind"],
                                "metrics": metrics, "episodes": len(eps), "active_steps": len(steps)}])
 
@@ -317,6 +341,16 @@ def update_completed(value, metrics):
     global _update
     _update = int(value)
     metrics.update(_pending)
+    metrics.update(_runtime_metrics)
+    if os.environ.get('GIGPO_RESOURCE_PROFILE'):
+        from experiments.gigpo_diag.appworld_resource import read_json
+        sample = read_json(Path(os.environ['GIGPO_RUN_DIR'])/'services'/'resource_latest.json', {})
+        rss = [x['rss_bytes'] for x in sample.get('services', []) if x.get('rss_bytes') is not None]
+        if rss:
+            metrics['infrastructure/services_rss_sum_gib'] = sum(rss) / 1024**3
+            metrics['infrastructure/services_rss_max_gib'] = max(rss) / 1024**3
+        # Sum RSS includes shared mappings; the full cgroup ancestor records are
+        # saved separately and must not be mislabeled as per-job RSS.
     metrics["train/policy_update"] = _update
     write("updates", [{"policy_update": _update, "native_actor_update_returned": True}])
     if _update == 1 or _update % 5 == 0:

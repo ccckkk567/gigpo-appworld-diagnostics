@@ -35,8 +35,6 @@ def record_provenance(config):
     output = Path(os.environ['GIGPO_RUN_DIR'])
     output.mkdir(parents=True, exist_ok=True)
     model = Path(config.actor_rollout_ref.model.path).resolve()
-    # Verify once before starting any environment services or loading the model.
-    # Identity is saved under this run, leaving the existing model directory untouched.
     identity = verify_existing_model(model)
     print('EXISTING_7B_MODEL_VERIFIED_OFFLINE', model, REVISION, flush=True)
     OmegaConf.save(config, output/'resolved_config.yaml', resolve=True)
@@ -65,6 +63,11 @@ def record_provenance(config):
             'cell_deadline_control': 'SIGALRM with private BaseException; native timeout feedback',
             'cell_deadline_limits': 'bare except/BaseException handlers and uninterruptible native calls are not covered',
             'automatic_execute_retries': 0}
+        if os.environ.get('GIGPO_RESOURCE_PROFILE'):
+            from experiments.gigpo_diag.appworld_resource import load_profile
+            provenance['bounded_runtime_v1'] = load_profile()
+            provenance['appworld_timeouts']['external_final_deadline_seconds'] = 140
+            provenance['appworld_timeouts']['cell_deadline_limits'] = 'private soft deadline plus process-external hard kill; unknown infra aborts batch'
     for name, value in [('environment_provenance.json', provenance), ('model_identity.json', identity)]:
         (output/name).write_text(json.dumps(value, indent=2), encoding='utf-8')
     source = json.loads((Path(__file__).parent/'SOURCE.json').read_text())
@@ -75,13 +78,27 @@ def record_provenance(config):
                 'initial_checkpoint':str(model), 'tracker_requested':'swanlab', 'seed':config.env.seed,
                 'resume_from_path':config.trainer.get('resume_from_path'),
                 'reference_schedule_epochs':config.trainer.total_epochs, 'formal_holdout_details_saved':False}
+    manifest['resource_protocol'] = 'bounded_runtime_v1' if os.environ.get('GIGPO_RESOURCE_PROFILE') else None
+    manifest['acceptance_run'] = os.environ.get('GIGPO_ACCEPTANCE_DIR')
+    manifest['training_success_semantics'] = 'budgeted_task_success; resource-terminal is distinct from unknown native evaluator outcome'
     (output/'RUN_MANIFEST.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     snapshot = output/'implementation_snapshot'
     for name in ('appworld_timeout.py', 'check_appworld_timeout.py'):
         dest = snapshot/'experiments/gigpo_diag'/name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(Path(__file__).parent/name, dest)
-    for name in ('gigpo/core_gigpo.py','agent_system/environments/env_manager.py','agent_system/multi_turn_rollout/rollout_loop.py','verl/trainer/ppo/ray_trainer.py','verl/utils/tracking.py','experiments/gigpo_diag/diagnostics.py','experiments/gigpo_diag/services.py','experiments/gigpo_diag/appworld_server.py','experiments/gigpo_diag/appworld_execution_trace.py','experiments/gigpo_diag/appworld_client.py','agent_system/environments/env_package/appworld/envs.py','experiments/gigpo_diag/verify_existing_model.py','experiments/gigpo_diag/model_files_7b.json','experiments/gigpo_diag/common.sh','experiments/gigpo_diag/launch_reference.sh','experiments/gigpo_diag/train.sbatch','experiments/gigpo_diag/SOURCE.json','experiments/gigpo_diag/CONFIG_DIFF.md'):
+    for name in ('appworld_exception_cleanup.py', 'appworld_resource.py', 'appworld_service_launcher.py',
+                 'appworld_service_probe.py', 'appworld_resource_preflight.py', 'bounded_acceptance.py',
+                 'check_appworld_live_protocol.py', 'check_checkpoint_roundtrip.py',
+                 'verify_existing_model.py', 'model_files_7b.json'):
+        dest = snapshot/'experiments/gigpo_diag'/name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(Path(__file__).parent/name, dest)
+    for name in ('fsdp_checkpoint_manager.py', 'checkpoint_memory.py', 'checkpoint_transaction.py'):
+        dest = snapshot/'verl/utils/checkpoint'/name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root/'verl/utils/checkpoint'/name, dest)
+    for name in ('gigpo/core_gigpo.py','agent_system/environments/env_manager.py','agent_system/multi_turn_rollout/rollout_loop.py','verl/trainer/ppo/ray_trainer.py','verl/utils/tracking.py','experiments/gigpo_diag/diagnostics.py','experiments/gigpo_diag/services.py','experiments/gigpo_diag/appworld_server.py','experiments/gigpo_diag/appworld_execution_trace.py','experiments/gigpo_diag/appworld_client.py','agent_system/environments/env_package/appworld/envs.py','experiments/gigpo_diag/common.sh','experiments/gigpo_diag/launch_reference.sh','experiments/gigpo_diag/train.sbatch','experiments/gigpo_diag/SOURCE.json','experiments/gigpo_diag/CONFIG_DIFF.md'):
         dest=snapshot/name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root/name,dest)
