@@ -117,7 +117,11 @@ def main():
     for i, (split, task) in enumerate(tasks):
         run_probe(destination / f'limited-{i}-{split}', task, 'healthy', limit)
     for mode in ('allocate', 'catch-memory', 'swallow-deadline'):
-        run_probe(destination / mode, tasks[0][1], mode, limit)
+        # AppWorld's DB loader treats any path containing "memory" as an
+        # in-memory connection, including task files below a disk root. Keep
+        # the logical mode but avoid that substring in its physical directory.
+        directory_name = 'catch-allocation' if mode == 'catch-memory' else mode
+        run_probe(destination / directory_name, tasks[0][1], mode, limit)
     versions = {p: importlib.metadata.version(p) for p in ('appworld', 'ipython', 'libcst')}
     profile = {'protocol': PROTOCOL, 'calibrated': True,
                'code_commit': os.environ['GIGPO_CODE_COMMIT'], 'packages': versions,

@@ -51,6 +51,7 @@ timeout --signal=TERM --kill-after=30s 15m python -m experiments.gigpo_diag.appw
 if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" == 1 ]]; then
   timeout --signal=TERM --kill-after=30s 5m python -m unittest \
     experiments.gigpo_diag.test_appworld_resource \
+    experiments.gigpo_diag.test_appworld_resource_preflight \
     experiments.gigpo_diag.test_appworld_exception_cleanup \
     experiments.gigpo_diag.test_appworld_timeout \
     experiments.gigpo_diag.test_checkpoint_transaction

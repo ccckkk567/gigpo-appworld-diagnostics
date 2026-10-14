@@ -136,7 +136,7 @@ bash experiments/gigpo_diag/submit_bounded.sh
 <验收 run>/acceptance.json
 ```
 
-日志根目录：`/scratch/prjsnnn0000269/Students/shuming/cjk/logs/gigpo-reproduction/appworld/`。入口输出真实 `PREFLIGHT_JOB`、`TRAIN_JOB` 与完整 run 路径；当前尚无这两份作业的 job ID。
+日志根目录：`/scratch/prjsnnn0000269/Students/shuming/cjk/logs/gigpo-reproduction/appworld/`。入口输出真实 `PREFLIGHT_JOB`、`TRAIN_JOB` 与完整 run 路径。首次验收作业 162144 的初始化失败见第 6 节；新的修复作业尚待用户提交。
 
 ## 5. 后续观察与恢复
 
@@ -146,4 +146,16 @@ bash experiments/gigpo_diag/submit_bounded.sh
 - 未来跨作业恢复须指向新格式四卡完整 `global_step_N` 目录，设置 `GIGPO_RESUME_MODE=resume_path` 和 `GIGPO_RESUME_FROM=<该目录>`，在新的 run 保存后续 checkpoint。不要复用不完整 staging 目录。
 - 320G 仍可能不足，尤其大量合法全局状态或 checkpoint/rollout 总峰值。当前改动建立可观测、可拒绝的边界，尚无 HPC 结果可证明完整训练成功或学习曲线改善。
 
-代码通过用户授权的 GitHub 分支同步；没有连接 HPC 执行新任务，也没有产生新的学习曲线。实际 job ID 与运行状态应在用户执行一体化拉取/提交命令后补充。
+代码通过用户授权的 GitHub 分支同步；本机没有连接 HPC 执行新任务。已收到的 HPC 证据记录如下，修复后的真实任务/GPU 验收与学习曲线仍待验证。
+
+## 6. 作业 162144：测试目录名误触发 AppWorld 数据库路径校验
+
+用户提供的 run 为 `appworld-7b-4gpu-preflight-20261014T124359Z-1383635`，代码为 `c8a9a233e2c55c753dd293e01cd5d569266bf4bd`。`resource_preflight/catch-memory/result.json` 显示 `returncode=1`、`external_kill=false`，约 2.72 秒退出；采样/事件峰值 RSS 143405056 字节、VMS 170663936 字节，AS 限额 1092112384 字节。事件停在 `world_begin` 后的 `failed`，未进入 `danger_started`；训练更新数与 episode 数均为 0。
+
+实际异常是 `Invalid changes_file_path. It cannot contain in-memory connection strings.`。AppWorld 0.2.0.dev0 的 `apps/lib/models/db.py:346` 对 `changes_file_path` 使用 `"memory" in changes_file_path`，并非仅判断内存连接前缀。我们的磁盘目录 `catch-memory` 因而导致原生任务数据库加载失败。`get_db_args` 也使用同类字符串判断，所以不应只绕过该异常检查。
+
+这次失败发生在危险代码执行前，现有日志不支持将其归因为再次 OOM、HTTP 超时或 7B 能力问题。依照顺序执行的控制流，前面的四个基线、四个限额健康检查及 `allocate` 已返回通过；尚未读取这些检查的全部明细，也不能据此声称后续全部验收成功。
+
+修复仅将该模式的磁盘子目录改为 `catch-allocation`，CLI/event 中仍保留 `catch-memory` 模式和原有危险代码、限额、超时及通过条件。不修改 AppWorld 安装包，不跳过测试，不调整 7B/4 卡/320G、GiGPO 参数或每 10 轮保存配置。
+
+新增 `test_appworld_resource_preflight`：调用 preflight 主入口生成的全部 11 个检查目录，使用本机实际安装的 AppWorld 数据库加载函数和小型 SQLite/JSONL fixture 验证路径。旧代码在相同 `apply_db_changes` 检查处复现了同一异常；改名后全部路径成功加载，并确认八个健康检查和三个危险模式均保留。该测试替代了任务执行与资源测量，不能代替 HPC 原生任务、危险循环或四卡训练验收。它已加入现有验收作业的本地回归测试列表。
