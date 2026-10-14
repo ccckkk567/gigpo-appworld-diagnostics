@@ -467,3 +467,11 @@ not a measured sufficient capacity. Keep two GPUs, 32 CPUs, 17:50 wall time,
 checkpoint frequency/retention and training settings unchanged. The partial
 global_step_1 checkpoint has not been verified complete or resumable; the
 existing resume_mode=disable remains in effect.
+
+## Checkpoint cadence restored at user request (2026-10-14)
+
+Current setting: trainer.save_freq=10, trainer.max_actor_ckpt_to_keep=2.
+This supersedes the every-update checkpoint setting described above.
+Save every ten training updates; RAM and all other training settings stay unchanged.
+This reduces save frequency but does not reduce the peak memory of an individual save.
+
