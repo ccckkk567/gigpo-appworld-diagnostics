@@ -31,6 +31,8 @@ def install_cst_rejection_handler():
 
 def main():
     install_cst_rejection_handler()
+    from experiments.gigpo_diag.appworld_timeout import install_cell_deadline
+    install_cell_deadline()
     from experiments.gigpo_diag.appworld_execution_trace import install_execution_trace
     install_execution_trace()
     print('APPWORLD_CST_REJECTION_HANDLER enabled', flush=True)

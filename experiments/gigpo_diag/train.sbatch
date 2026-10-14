@@ -40,6 +40,7 @@ on_exit() {
   exit "$result"
 }
 trap on_exit EXIT
+python -m experiments.gigpo_diag.check_appworld_timeout
 printf '%s\n' "bash experiments/gigpo_diag/launch_reference.sh vllm" > "$GIGPO_RUN_DIR/actual_command.txt"
 cp "$GIGPO_VENV/gigpo-pip-freeze.txt" "$GIGPO_RUN_DIR/pip-freeze.txt"
 cp experiments/gigpo_diag/CONFIG_DIFF.md "$GIGPO_RUN_DIR/CONFIG_DIFF.md"

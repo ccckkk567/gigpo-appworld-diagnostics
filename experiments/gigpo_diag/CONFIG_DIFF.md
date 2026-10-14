@@ -347,3 +347,21 @@ Sources:
 https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/examples/gigpo_trainer/run_appworld.sh
 https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/agent_system/environments/env_package/appworld/envs.py
 https://github.com/pengzj1/revisiting_opd/blob/3379dde59c323cedd30d400cc48dfffac71470f3/examples/env_server/start_appworld_server.sh
+
+## Independent 1.5B retry with the cell-deadline repair
+
+Port e789983's cell deadline, tracing and CPU preflight onto 1.5B baseline
+604cf70. Private BaseException prevents ordinary except Exception loops from
+swallowing the alarm, preserving native timeout feedback, turn and state/log
+handling. Bare except and uninterruptible native calls remain limitations.
+Keep the 100-second execution budget and 160-second HTTP deadline. The same
+preflight passed on HPC in 7B job 161231; that job failed from Slurm-confirmed
+OOM at its first checkpoint rather than an HTTP timeout.
+
+Reuse Qwen2.5-1.5B-Instruct-989aa798 with pinned revision
+989aa7980e4cf806f80c7fef2b1adb7bc71aa306 and existing model identity checks.
+No download or prepare required. Keep 1.5B microbatch=2, vLLM utilization=0.6,
+2 GPUs, 32 CPUs, 256G RAM, 17:50 wall time and 150 epochs. Save every update,
+retain two checkpoints and start from initial weights (resume disabled).
+256G sufficiency at checkpoint time is not yet established. This branch is
+independent of the 7B 320G training checkout.
