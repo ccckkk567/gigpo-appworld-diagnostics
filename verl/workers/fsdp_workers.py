@@ -20,6 +20,8 @@ import os
 import warnings
 from typing import Union
 
+from experiments.gigpo_diag.actor_update_evidence import record_actor_update
+
 import psutil
 import torch
 import torch.distributed
@@ -591,6 +593,7 @@ class ActorRolloutRefWorker(Worker):
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @record_actor_update
     def update_actor(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_torch_device().current_device())

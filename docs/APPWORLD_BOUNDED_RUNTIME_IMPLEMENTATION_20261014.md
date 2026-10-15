@@ -171,3 +171,17 @@ bash experiments/gigpo_diag/submit_bounded.sh
 本地验证使用外层注入的作业环境变量，包括指向不存在文件的 `APPWORLD_PORTS_FILE`：旧测试复现同一 `FileNotFoundError`；修复后协议与 CPU checkpoint 两个测试模块共 15 项全部通过，并核对父环境恢复、正式端口文件未被创建。Windows 本地验证将 TEMP/TMP 指向工作区内的可写临时目录。CPU checkpoint 使用实际小型 Torch/Adam 模型，FSDP 上下文为 fixture，不是四卡 7B 训练。
 
 本次日志中 `updates=0`、`episodes=0`。八服务真实 HTTP 协议验收与四卡 7B 检查点验收尚未执行。资源 profile 的整作业 cgroup v2 读取显示 `unavailable`，checkpoint 诊断另有 cgroup v1 记录；不能将前者解释为作业内存为零，也没有本次再次 OOM 的证据。
+
+## 8. 作业 163002：首次 actor 更新编译异常；新增单次真实更新验证
+
+用户提供的正式作业代码为 `58825a74e7de378070970581ae4d8d7b344c5235`，运行于 `8FS9B74`，申请 320G，31 分 12 秒后状态为 `FAILED`。Slurm 的 MaxRSS 为 0，不能据此判断峰值；本次没有 `OUT_OF_MEMORY` 结论。主日志确认已有资源/HTTP/四卡检查点验收通过，正式节点资源校准也通过，随后完成初始评估和第一批 rollout，累计 144 episodes，完成更新数为 0。
+
+失败发生在 `actor_rollout_wg.update_actor(batch)`。Ray 还原异常时出现 `BackendCompilerFailed.__init__() missing ... inner_exception`，进而报 `Failed to unpickle serialized exception`。这证明存在先前的 PyTorch 编译后端异常，但原始底层错误未出现在主日志中。不能将缓存竞争、GPU/CPU OOM、四卡并行或某个编译器错误当成已确认根因。旧作业 161511 使用 `9d7b424`、7B/2 卡/320G，完成 4 次更新后 OOM；两版 actor/FSDP worker 更新代码、编译开关和缓存设置原本相同。已有检查点验收未覆盖实际 PPO 编译熵路径，这是验收范围缺口。
+
+本次按用户要求增加独立入口 `experiments/gigpo_diag/verify_actor.sbatch`，只提交一个 7B/4 卡/320G/32 CPU、最长 75 分钟的诊断作业，不指定计算节点，不接续完整训练，不下载模型或修改依赖，不重新运行四卡检查点往返。它仍执行同一资源校准和服务保护，再走正式初始评估、16×8 真实 rollout、GiGPO 优势计算及一次原生 actor 更新。保留编译、熵系数、微批大小和缓存设置；不以 eager 回退来制造通过结果。诊断作业将 `total_training_steps=1`，关闭本次结束时的额外评估/检查点和云端 tracker。正式入口的 150 epochs、每 10 次更新保存及 SwanLab 配置未变。单次更新成功也不等于完整训练或后续检查点稳定。
+
+`GIGPO_ACTOR_VERIFY=1` 使原生 `update_actor` 外层记录 rank/PID、输入形状、编译配置及返回的梯度范数；异常与显式 `inner_exception` 堆栈在 Ray 传输前直接写入共享 run 的 `actor-update/*.traceback.txt`，随后重新抛出原异常，不重试或改变计算结果。退出时尽力归档本作业的节点本地 Ray 日志到共享 run 的 `ray-logs.tar.gz`（最多 60 秒，归档退出码单独打印，不掩盖训练退出码）。进程被 SIGKILL 时退出归档不保证执行；已同步写入的 worker 堆栈独立保留。
+
+通过条件为原生训练进程正常结束，四个独立 rank/PID 都返回一次 update 1、梯度范数均有限、每个 worker 有真实 optimizer step 记录，且 driver 恰好确认一次 policy update。只有全部满足才生成 `ACTOR_UPDATE_VERIFIED.json`。此文件是单次更新验证证据，不发布或替代原 `acceptance.json`。原始错误、编译包版本、节点 GPU/驱动及路径设置均保存在本次共享 run，无须再为取日志申请同一节点。
+
+本地已通过 11 项检查：7 项标准库证据测试，包括模拟无法 pickle 还原的异常、嵌套原始异常保存、记录写入失败时仍保留原异常，以及拒绝缺 rank/优化器记录/有限梯度等情况；4 项 Linux shell fixture 检查覆盖成功、资源预检失败、训练管道失败和最终证据不全，确认 `tee` 与退出归档不隐藏失败状态。它们没有在本机运行 7B/GPU；HPC 单次真实更新结果待提交后确认。
