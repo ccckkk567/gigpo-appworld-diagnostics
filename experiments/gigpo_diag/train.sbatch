@@ -29,21 +29,31 @@ export APPWORLD_PORTS_FILE="$GIGPO_RUN_DIR/appworld_ports.ports"
 export GIGPO_DATA_DIR="$ORION_ROOT/data/gigpo-reproduction/$GIGPO_ENV/placeholders"
 export GIGPO_NUM_GPUS=4
 export GIGPO_CPUS="${SLURM_CPUS_PER_TASK:-32}"
+# Record every native update; this flag does not limit the training schedule.
+export GIGPO_ACTOR_VERIFY=1 HYDRA_FULL_ERROR=1
 # Isolate third-party caches without replacing the shared user's HOME.
 export XDG_CACHE_HOME="$ORION_ROOT/.cache/gigpo-$GIGPO_ENV"
 mkdir -p "$XDG_CACHE_HOME"
 on_exit() {
   local result=$?
   trap - EXIT
+  if [[ -d "$RAY_TMPDIR/session_latest/logs" ]]; then
+    local archive_result=0
+    timeout --signal=TERM --kill-after=5s 60s tar -czf "$GIGPO_RUN_DIR/ray-logs.tar.gz" \
+      -C "$RAY_TMPDIR/session_latest" logs || archive_result=$?
+    echo "RAY_LOG_ARCHIVE_EXIT=$archive_result path=$GIGPO_RUN_DIR/ray-logs.tar.gz"
+  fi
   python -m experiments.gigpo_diag.analyze "$GIGPO_RUN_DIR" --exit-code "$result" || true
   echo "GIGPO_TRAIN_END env=$GIGPO_ENV job=$SLURM_JOB_ID exit=$result output=$GIGPO_RUN_DIR"
   exit "$result"
 }
 trap on_exit EXIT
+python -m experiments.gigpo_diag.actor_update_evidence environment "$GIGPO_RUN_DIR"
+nvidia-smi --query-gpu=name,uuid,driver_version,memory.total --format=csv > "$GIGPO_RUN_DIR/gpus.csv" || true
 export GIGPO_RESOURCE_PROFILE="$GIGPO_RUN_DIR/bounded_runtime_profile.json"
 python -c 'import json,os; from pathlib import Path; from experiments.gigpo_diag.verify_existing_model import verify_existing_model; identity=verify_existing_model(os.environ["GIGPO_MODEL_PATH"]); (Path(os.environ["GIGPO_RUN_DIR"])/"model_identity.json").write_text(json.dumps(identity,indent=2)); print("EXISTING_7B_MODEL_VERIFIED_OFFLINE",identity["revision"],flush=True)'
-# A separate short job validates real task execution and full optimizer resume;
-# the long job is submitted with afterok and verifies the matching evidence gate.
+# Require completed resource/protocol/checkpoint evidence. Explicit reviewed
+# diagnostic-only reuse can avoid repeating that completed acceptance job.
 if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" != 1 ]]; then
   python -m experiments.gigpo_diag.bounded_acceptance verify
 fi

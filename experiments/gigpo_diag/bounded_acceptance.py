@@ -16,6 +16,18 @@ def identity():
             'job_requested_mib': int(os.environ['SLURM_MEM_PER_NODE'])}
 
 
+def verify_compatible(accepted, current, reuse_from=None):
+    if not accepted.get('passed') or any(
+            accepted.get(k) != v for k, v in current.items() if k != 'code_commit'):
+        raise RuntimeError('Missing or incompatible completed preflight; training refused')
+    if accepted.get('code_commit') == current['code_commit']:
+        return None
+    if not reuse_from or reuse_from != accepted.get('code_commit'):
+        raise RuntimeError('Preflight code differs; explicit reviewed reuse is required')
+    from experiments.gigpo_diag.acceptance_reuse import reviewed_changes
+    return reviewed_changes(reuse_from, current['code_commit'])
+
+
 def main():
     if sys.argv[1] == 'publish':
         root = Path(os.environ['GIGPO_RUN_DIR'])
@@ -38,8 +50,13 @@ def main():
     elif sys.argv[1] == 'verify':
         root = Path(os.environ['GIGPO_ACCEPTANCE_DIR'])
         accepted = read_json(root / 'acceptance.json', {})
-        if not accepted.get('passed') or any(accepted.get(k) != v for k, v in identity().items()):
-            raise RuntimeError('Missing or incompatible completed preflight; training refused')
+        reuse = verify_compatible(accepted, identity(), os.environ.get('GIGPO_ACCEPTANCE_REUSE_FROM'))
+        if reuse is not None:
+            atomic_json(Path(os.environ['GIGPO_RUN_DIR']) / 'acceptance_reuse.json',
+                        {**reuse, 'acceptance_dir': str(root),
+                         'scope': 'Existing resource/protocol/checkpoint acceptance only; '
+                                  'does not certify compiled actor updates or full training'})
+            print('BOUNDED_ACCEPTANCE_REUSED_DIAGNOSTICS_ONLY', reuse, flush=True)
         print('BOUNDED_ACCEPTANCE_VERIFIED', root, flush=True)
     else:
         raise ValueError('Expected publish or verify')
