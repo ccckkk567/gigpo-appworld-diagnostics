@@ -208,6 +208,26 @@ def run_child():
         record('fresh_reset_verified', old_identity=before_identity, new_identity=after_identity,
                fresh_executions=2, old_danger_executions=1)
 
+        # Include the production HTTP/uvicorn process overhead, absent from the
+        # direct native calibration child. Keep user objects live during the
+        # actual /evaluate request; no reward substitution or action replay.
+        pressure_worker = workers[2]
+        pressure = pressure_worker.step('protocol_retained = []\nwhile True:\n'
+                                        '    protocol_retained.append(bytearray(1048576))')
+        require('MemoryError' in pressure[0] and pressure[2] is False and
+                pressure[3]['resource_terminal'] is False,
+                'retained pressure did not return a native recoverable MemoryError')
+        tracker = pressure_worker.env.evaluate()
+        require(isinstance(tracker.success, bool), 'HTTP native evaluation did not return a boolean')
+        record('retained_pressure_http_evaluated', worker_slot=2,
+               native_evaluator_success=tracker.success)
+        pressure_pid = pressure_worker.service_pid
+        pressure_worker.reset(task)
+        require(pressure_worker.service_pid == pressure_pid, 'healthy reset unexpectedly replaced service')
+        next_state = json.loads(assert_healthy(pressure_worker.step(TASK_STATE_CODE)))
+        require(next_state == initial_states[0], 'post-pressure reset changed initial task state')
+        record('retained_pressure_http_reset_verified', worker_slot=2, pid=pressure_pid)
+
         # Kill one of this process's idle service children. No matching resource
         # terminal exists; the next action must abort as unknown infrastructure.
         idle_worker = workers[1]
@@ -240,6 +260,7 @@ def run_child():
             'peers_next_cell_succeeded': 7, 'sticky_rpc_calls': 0,
             'fresh_reset': {'old': before_identity, 'new': after_identity, 'replayed_actions': 0},
             'unknown_idle_exit_raised_infrastructure_failure': True,
+            'retained_pressure_native_evaluation': True,
             'logs': str(service_root), 'profile': os.environ['GIGPO_RESOURCE_PROFILE'],
         }
     finally:

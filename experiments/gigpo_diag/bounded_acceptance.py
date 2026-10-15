@@ -41,7 +41,7 @@ def main():
                         r.get('cpu_cuda_numpy_python_rng_match') for r in rows)):
             raise RuntimeError(f'GPU roundtrip pass evidence missing: {evidence}')
         live = read_json(root / 'live-protocol' / 'LIVE_PROTOCOL_PASSED.json', {})
-        if not live.get('passed'):
+        if not live.get('passed') or not live.get('retained_pressure_native_evaluation'):
             raise RuntimeError('Real HTTP service group acceptance evidence missing')
         atomic_json(root / 'acceptance.json', {'passed': True, **identity(),
                     'resource_profile': profile, 'checkpoint_evidence': str(evidence),

@@ -48,6 +48,8 @@ RSS 为 `756531200` 字节（约 721.5 MiB）。
    验证日志保存、原生评估、对象未被删除，以及原生 close 后同进程下一 episode 的执行与评估。
    这只增加校准样本，不改变训练/dev 数据集或任务分布。
 4. 原来的无限分配、捕获异常、吞 deadline、HTTP 分组失效与 checkpoint 验证继续保留。
+   HTTP 验证也用一个真实服务保留对象至 MemoryError 后调用 `/evaluate`，再 reset 并验证
+   新任务初始状态，覆盖直接校准子进程没有的 uvicorn/HTTP 进程开销。
    新 profile 必须包含评估和保留对象压力测试的通过证据，旧 profile 不可直接使用。
 5. 新增 `GIGPO_PREFLIGHT_AND_TRAIN=1`：同一个完整训练作业先做本版本的有限校准、
    HTTP 协议和四卡保存恢复检查，通过后直接进入原来的完整训练。任一步失败不启动训练。
