@@ -30,6 +30,7 @@ export RAY_TMPDIR="$FIXTURE_ROOT/ray"
 ''')
             (scripts / "launch_reference.sh").write_text('''
 printf '%s\\n' "$@" > "$FIXTURE_ROOT/overrides.txt"
+printf '%s\\n' "$GIGPO_NUM_GPUS" > "$FIXTURE_ROOT/gpu-count.txt"
 if [[ "$FAILURE" == launch ]]; then exit 42; fi
 echo fixture-update-returned
 ''')
@@ -59,6 +60,7 @@ export -f module git nvidia-smi python timeout
                 overrides = (root / "overrides.txt").read_text().splitlines()
                 self.assertIn("trainer.total_training_steps=1", overrides)
                 self.assertIn("actor_rollout_ref.actor.use_torch_compile=True", overrides)
+                self.assertEqual((root / "gpu-count.txt").read_text().strip(), "2")
             return result, calls
 
     def test_success_requires_post_update_verifier(self):

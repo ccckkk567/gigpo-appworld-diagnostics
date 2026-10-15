@@ -76,8 +76,8 @@ class ActorEvidenceTests(unittest.TestCase):
             evidence.record_actor_update(fail)(self.worker, self.data)
         self.assertIs(caught.exception, original)
 
-    def make_success(self):
-        for rank in range(4):
+    def make_success(self, world_size=4):
+        for rank in range(world_size):
             self.worker.rank = rank
             pid = 1000 + rank
             result = SimpleNamespace(meta_info={"metrics": {"actor/grad_norm": [0.5, 0.4]}})
@@ -106,6 +106,22 @@ class ActorEvidenceTests(unittest.TestCase):
         (self.root / "actor-update" / "rank-3-pid-1003.jsonl").unlink()
         with self.assertRaises(RuntimeError):
             evidence.verify(self.root)
+
+    def test_two_rank_success_does_not_certify_four_gpus(self):
+        self.make_success(world_size=2)
+        with self.assertRaises(RuntimeError):
+            evidence.verify(self.root, expected_world_size=4)
+        self.assertFalse((self.root / "ACTOR_UPDATE_VERIFIED.json").exists())
+        with contextlib.redirect_stdout(io.StringIO()):
+            evidence.verify(self.root, expected_world_size=2)
+        result = json.loads((self.root / "ACTOR_UPDATE_VERIFIED.json").read_text())
+        self.assertEqual(result["world_size"], 2)
+        self.assertEqual(len(result["workers"]), 2)
+
+    def test_empty_or_unsupported_world_size_rejected(self):
+        for size in (0, 1, 3):
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                evidence.verify(self.root, expected_world_size=size)
 
     def test_missing_optimizer_or_extra_driver_update_rejected(self):
         self.make_success()

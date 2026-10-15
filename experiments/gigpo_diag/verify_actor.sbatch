@@ -3,7 +3,7 @@
 #SBATCH -A prjsnnn0000269
 #SBATCH --job-name=ggp-app7-verify
 #SBATCH --partition=testqueue
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:2
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=320G
@@ -19,14 +19,14 @@ test -f "$GIGPO_VENV/.setup-complete"
 source "$GIGPO_VENV/bin/activate"
 python experiments/gigpo_diag/check_python_environment.py --pip-version 25.3
 export GIGPO_CODE_COMMIT="$(git rev-parse HEAD)"
-export GIGPO_RUN_ID="appworld-7b-4gpu-actor-verify-${SLURM_JOB_ID}-$(date -u +%Y%m%dT%H%M%SZ)"
+export GIGPO_RUN_ID="appworld-7b-2gpu-actor-verify-${SLURM_JOB_ID}-$(date -u +%Y%m%dT%H%M%SZ)"
 export GIGPO_RUN_DIR="$ORION_ROOT/logs/gigpo-reproduction/appworld/$GIGPO_RUN_ID"
 mkdir -p "$GIGPO_RUN_DIR"
 export GIGPO_DIAG_DIR="$GIGPO_RUN_DIR/diagnostics"
 export APPWORLD_ROOT="$GIGPO_RUN_DIR/appworld"
 export APPWORLD_PORTS_FILE="$GIGPO_RUN_DIR/appworld_ports.ports"
 export GIGPO_DATA_DIR="$ORION_ROOT/data/gigpo-reproduction/appworld/placeholders"
-export GIGPO_NUM_GPUS=4 GIGPO_CPUS="${SLURM_CPUS_PER_TASK:-32}"
+export GIGPO_NUM_GPUS=2 GIGPO_CPUS="${SLURM_CPUS_PER_TASK:-32}"
 export GIGPO_RESOURCE_PROFILE="$GIGPO_RUN_DIR/bounded_runtime_profile.json"
 export GIGPO_ACTOR_VERIFY=1
 export XDG_CACHE_HOME="$ORION_ROOT/.cache/gigpo-appworld"
