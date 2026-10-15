@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=320G
-#SBATCH --time=01:15:00
+#SBATCH --time=02:00:00
 #SBATCH --output=/scratch/prjsnnn0000269/Students/shuming/cjk/logs/ggp-appworld-7b-verify-%j.out
 set -euo pipefail
 export GIGPO_ENV=appworld GIGPO_VAL_BATCH=16
@@ -65,6 +65,8 @@ args=(vllm trainer.total_training_steps=1 trainer.save_freq=-1 trainer.test_freq
       'trainer.logger=[console]' actor_rollout_ref.actor.use_torch_compile=True)
 printf '%q ' bash experiments/gigpo_diag/launch_reference.sh "${args[@]}" > "$GIGPO_RUN_DIR/actual_command.txt"
 printf '\n' >> "$GIGPO_RUN_DIR/actual_command.txt"
-timeout --signal=TERM --kill-after=30s 55m bash experiments/gigpo_diag/launch_reference.sh "${args[@]}" \
+# The budget includes initialization, initial evaluation, rollout and the update.
+# Leave time within the two-hour allocation for resource probes and exit evidence.
+timeout --signal=TERM --kill-after=30s 95m bash experiments/gigpo_diag/launch_reference.sh "${args[@]}" \
   2>&1 | tee "$GIGPO_RUN_DIR/train.log"
 python -m experiments.gigpo_diag.actor_update_evidence verify "$GIGPO_RUN_DIR"
