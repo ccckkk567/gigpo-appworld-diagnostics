@@ -151,6 +151,10 @@ class FailureProtocolTests(unittest.TestCase):
             'GIGPO_RESOURCE_PROFILE': str(Path(self.temp.name) / 'profile.json'),
             'GIGPO_RUN_DIR': self.temp.name, 'GIGPO_DIAG_DIR': self.temp.name,
             'GIGPO_RUN_ID': 'synthetic-bounded-test', 'APPWORLD_ROOT': self.temp.name,
+            # Production intentionally gives this variable precedence over
+            # AppWorldEnvs(port_file=...). Isolate the fixture from Slurm's
+            # exported production path, whose services are not started yet.
+            'APPWORLD_PORTS_FILE': str(Path(self.temp.name) / 'ports'),
         })
         self.env.start()
         self.addCleanup(self.env.stop)

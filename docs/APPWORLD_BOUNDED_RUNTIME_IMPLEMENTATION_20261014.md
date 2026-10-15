@@ -136,7 +136,7 @@ bash experiments/gigpo_diag/submit_bounded.sh
 <验收 run>/acceptance.json
 ```
 
-日志根目录：`/scratch/prjsnnn0000269/Students/shuming/cjk/logs/gigpo-reproduction/appworld/`。入口输出真实 `PREFLIGHT_JOB`、`TRAIN_JOB` 与完整 run 路径。首次验收作业 162144 的初始化失败见第 6 节；新的修复作业尚待用户提交。
+日志根目录：`/scratch/prjsnnn0000269/Students/shuming/cjk/logs/gigpo-reproduction/appworld/`。入口输出真实 `PREFLIGHT_JOB`、`TRAIN_JOB` 与完整 run 路径。首次验收作业 162144 的初始化失败见第 6 节；后续作业 162401 的通过阶段与测试环境隔离问题见第 7 节。
 
 ## 5. 后续观察与恢复
 
@@ -159,3 +159,15 @@ bash experiments/gigpo_diag/submit_bounded.sh
 修复仅将该模式的磁盘子目录改为 `catch-allocation`，CLI/event 中仍保留 `catch-memory` 模式和原有危险代码、限额、超时及通过条件。不修改 AppWorld 安装包，不跳过测试，不调整 7B/4 卡/320G、GiGPO 参数或每 10 轮保存配置。
 
 新增 `test_appworld_resource_preflight`：调用 preflight 主入口生成的全部 11 个检查目录，使用本机实际安装的 AppWorld 数据库加载函数和小型 SQLite/JSONL fixture 验证路径。旧代码在相同 `apply_db_changes` 检查处复现了同一异常；改名后全部路径成功加载，并确认八个健康检查和三个危险模式均保留。该测试替代了任务执行与资源测量，不能代替 HPC 原生任务、危险循环或四卡训练验收。它已加入现有验收作业的本地回归测试列表。
+
+## 7. 作业 162401：资源预检通过，协议单测继承了作业端口路径（2026-10-15 复核）
+
+用户提供的 run 为 `appworld-7b-4gpu-preflight-20261014T154946Z-2065874`，代码为 `bbef2333dabfcb6bcb3ace9aeb2203ad637a7039`。日志已打印 `BOUNDED_RUNTIME_PREFLIGHT_PASSED`，表明两 train/两 dev 任务的基线与限额健康检查，以及 `allocate`、`catch-memory`、`swallow-deadline` 三个危险检查均通过。选出的单服务 AS 限额为 1092112384 字节，RSS watchdog 为 982901145 字节；这是抽样校准，不代表 144 服务并发或完整训练已通过。随后第一组 31 项回归测试为 `OK`。
+
+作业停在第二组 CPU/fixture 回归测试：15 项测试中报告 13 个 error（包含同一测试对八个 slot 的子测试），均为协议测试读取不存在的正式 `appworld_ports.ports`。`train.sbatch` 已导出 `APPWORLD_PORTS_FILE`；生产 `load_available_ports()` 按设计优先使用该环境变量。协议测试虽给 `AppWorldEnvs` 传入自己的临时端口文件，却漏掉了对这个环境变量的隔离。此时正式服务尚未启动，正式端口文件不存在是正常的阶段状态。
+
+修复在协议测试的 `setUp` 中将 `APPWORLD_PORTS_FILE` 指向该测试独有的临时 `ports`，并通过已有 cleanup 恢复父环境。保持生产环境变量优先级，不制造正式端口文件、不提前启动服务、不跳过检查，也不修改模型、RAM、GPU、训练超参数或检查点频率。
+
+本地验证使用外层注入的作业环境变量，包括指向不存在文件的 `APPWORLD_PORTS_FILE`：旧测试复现同一 `FileNotFoundError`；修复后协议与 CPU checkpoint 两个测试模块共 15 项全部通过，并核对父环境恢复、正式端口文件未被创建。Windows 本地验证将 TEMP/TMP 指向工作区内的可写临时目录。CPU checkpoint 使用实际小型 Torch/Adam 模型，FSDP 上下文为 fixture，不是四卡 7B 训练。
+
+本次日志中 `updates=0`、`episodes=0`。八服务真实 HTTP 协议验收与四卡 7B 检查点验收尚未执行。资源 profile 的整作业 cgroup v2 读取显示 `unavailable`，checkpoint 诊断另有 cgroup v1 记录；不能将前者解释为作业内存为零，也没有本次再次 OOM 的证据。
