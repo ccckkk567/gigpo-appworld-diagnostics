@@ -34,6 +34,23 @@ class CheckpointFixture(unittest.TestCase):
         self.tx.publish_checkpoint(stage, final, step)
         return final
 
+    def acceptance(self, run, job='100'):
+        evidence = run / 'checkpoint-roundtrip/CHECKPOINT_ROUNDTRIP_PASSED.json'
+        rc.write_json(evidence, {'ranks': [
+            {'rank': rank, 'next_update_match': True, 'dataloader_match': True,
+             'cpu_cuda_numpy_python_rng_match': True} for rank in range(4)]})
+        rc.write_json(run / 'live-protocol/LIVE_PROTOCOL_PASSED.json',
+                      {'passed': True, 'retained_pressure_native_evaluation': True})
+        rc.write_json(run / 'acceptance.json', {
+            'passed': True, 'code_commit': rc.TRAINING_COMMIT, 'preflight_job_id': job,
+            'model_path': str(rc.MODEL_PATH), 'world_size': 4, 'job_requested_mib': 327680,
+            'checkpoint_evidence': str(evidence),
+            'resource_profile': {'code_commit': rc.TRAINING_COMMIT,
+                                 'memory_budget_version': 'cell_with_native_reserve_v1',
+                                 'native_evaluation_verified': True,
+                                 'retained_pressure_evaluation_verified': True}})
+        return run
+
     def select(self, jobs=('100', '101')):
         return rc.select_checkpoint(self.root, list(jobs), rc.TRAINING_COMMIT, self.tx)
 
@@ -108,8 +125,8 @@ class SubmissionTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.path = Path(temporary.name) / 'chain.json'
-        self.chain = {'parent_job': '163354', 'helper_checkout': '/helper',
-                      'jobs': [{'slot': 0, 'job_id': '163354', 'status': 'submitted'}]}
+        self.chain = {'parent_job': '163468', 'helper_checkout': '/helper',
+                      'jobs': [{'slot': 0, 'job_id': '163468', 'status': 'submitted'}]}
 
     def test_three_serial_dependencies_and_idempotent_reentry(self):
         calls = []
@@ -123,7 +140,7 @@ class SubmissionTests(unittest.TestCase):
             self.assertIn('--no-requeue', args)
             return str(200000 + len(calls)) + ';cluster'
         jobs = rc.submit_jobs(self.chain, self.path, submit)
-        self.assertEqual(jobs, ['163354', '200001', '200002', '200003'])
+        self.assertEqual(jobs, ['163468', '200001', '200002', '200003'])
         for call, previous in zip(calls, jobs):
             self.assertIn(f'--dependency=afterany:{previous}', call)
         rc.submit_jobs(rc.read_json(self.path), self.path, submit)
@@ -146,18 +163,74 @@ class SubmissionTests(unittest.TestCase):
             rc.submit_jobs(rc.read_json(self.path), self.path, lambda *a, **k: self.fail('Must not resubmit'))
 
     def test_parent_resource_and_workdir_checks(self):
-        fields = {'JobId': '163354', 'Account': 'prjsnnn0000269', 'Partition': 'testqueue',
+        fields = {'JobId': '163468', 'Account': 'prjsnnn0000269', 'Partition': 'testqueue',
                   'WorkDir': str(rc.TRAINING_CHECKOUT),
                   'Command': str(rc.TRAINING_CHECKOUT / 'experiments/gigpo_diag/train.sbatch'),
                   'TimeLimit': '17:50:00', 'NumNodes': '1', 'NumCPUs': '32',
                   'JobState': 'PENDING', 'UserId': 'linz3(173020)',
                   'ReqTRES': 'cpu=32,mem=320G,node=1,billing=40,gres/gpu=4'}
         with patch.dict(os.environ, USER='linz3'):
-            rc.verify_parent('163354', fields)
+            rc.verify_parent('163468', fields)
             for key, value in [('ReqTRES', 'mem=256G,gres/gpu=2'), ('WorkDir', '/other'),
                                ('UserId', 'another(1)'), ('JobState', 'COMPLETED')]:
                 with self.subTest(key=key), self.assertRaises(RuntimeError):
-                    rc.verify_parent('163354', {**fields, key: value})
+                    rc.verify_parent('163468', {**fields, key: value})
+
+    def test_pending_parent_queues_before_acceptance_or_checkpoints_exist(self):
+        submitted = []
+        def command(*args, **kwargs):
+            if args[:3] == ('git', 'rev-parse', 'HEAD'):
+                return 'helper-version'
+            if args[0] == 'sbatch':
+                submitted.append(args)
+                return str(200000 + len(submitted))
+            if args[0] == 'squeue':
+                return 'queue fixture'
+            self.fail(f'Unexpected command {args}')
+        with patch.object(rc, 'RUNS_ROOT', self.path.parent), \
+             patch.object(rc, 'verify_checkout'), patch.object(rc, 'slurm_fields', return_value={}), \
+             patch.object(rc, 'verify_parent') as verify, patch.object(rc, 'command', side_effect=command):
+            rc.submit_chain('163468')
+            rc.submit_chain('163468')
+        verify.assert_called_once_with('163468', {})
+        self.assertEqual(len(submitted), 3)
+        chain = rc.read_json(self.path.parent / 'resume-chains/from-163468/chain.json')
+        self.assertEqual(chain['version'], 2)
+        self.assertEqual(chain['acceptance_policy'], rc.ACCEPTANCE_POLICY)
+        self.assertNotIn('acceptance_dir', chain)
+
+
+class AcceptanceTests(CheckpointFixture):
+    def test_only_same_revision_parent_evidence_is_selected(self):
+        self.acceptance(self.run_dir('999'), '999')
+        with self.assertRaisesRegex(RuntimeError, 'No completed'):
+            rc.select_acceptance(self.root, '100', rc.TRAINING_COMMIT)
+        run = self.acceptance(self.run_dir())
+        self.assertEqual(rc.select_acceptance(self.root, '100', rc.TRAINING_COMMIT), str(run))
+        accepted = rc.read_json(run / 'acceptance.json')
+        for key, value in [('code_commit', 'c1fb482'), ('preflight_job_id', '999'),
+                           ('world_size', 2), ('job_requested_mib', 262144), ('passed', False)]:
+            with self.subTest(key=key):
+                rc.write_json(run / 'acceptance.json', {**accepted, key: value})
+                with self.assertRaisesRegex(RuntimeError, 'Incompatible parent'):
+                    rc.select_acceptance(self.root, '100', rc.TRAINING_COMMIT)
+
+    def test_missing_pressure_or_roundtrip_proof_is_refused(self):
+        for failure in ('profile', 'http', 'rank', 'evidence_path'):
+            with self.subTest(failure=failure):
+                run = self.acceptance(self.run_dir())
+                accepted = rc.read_json(run / 'acceptance.json')
+                if failure == 'profile':
+                    accepted['resource_profile']['retained_pressure_evaluation_verified'] = False
+                elif failure == 'http':
+                    rc.write_json(run / 'live-protocol/LIVE_PROTOCOL_PASSED.json', {'passed': True})
+                elif failure == 'rank':
+                    rc.write_json(Path(accepted['checkpoint_evidence']), {'ranks': []})
+                else:
+                    accepted['checkpoint_evidence'] = '/other/evidence.json'
+                rc.write_json(run / 'acceptance.json', accepted)
+                with self.assertRaises(RuntimeError):
+                    rc.select_acceptance(self.root, '100', rc.TRAINING_COMMIT)
 
 
 class RunTests(CheckpointFixture):
@@ -165,10 +238,10 @@ class RunTests(CheckpointFixture):
         super().setUp()
         self.chain_path = self.root / 'resume-chains/from-100/chain.json'
         rc.write_json(self.chain_path, {
-            'version': 1, 'parent_job': '100', 'training_commit': rc.TRAINING_COMMIT,
+            'version': 2, 'parent_job': '100', 'training_commit': rc.TRAINING_COMMIT,
             'training_checkout': str(rc.TRAINING_CHECKOUT), 'helper_checkout': str(rc.HELPER_CHECKOUT),
             'helper_commit': 'helper-version', 'runs_root': str(self.root),
-            'acceptance_dir': str(rc.ACCEPTANCE_DIR),
+            'acceptance_policy': rc.ACCEPTANCE_POLICY,
             'jobs': [{'slot': 0, 'job_id': '100', 'status': 'submitted'},
                      {'slot': 1, 'job_id': '101', 'status': 'submitted'}]})
 
@@ -183,7 +256,8 @@ class RunTests(CheckpointFixture):
             return execute
 
     def test_runtime_executes_pinned_training_with_full_resume(self):
-        checkpoint = self.checkpoint(self.run_dir(), 10)
+        run = self.acceptance(self.run_dir())
+        checkpoint = self.checkpoint(run, 10)
         execute = self.start(queue='999 RUNNING')
         args = execute.call_args.args
         self.assertEqual(args[:2], ('bash', ['bash', 'experiments/gigpo_diag/train.sbatch']))
@@ -191,8 +265,19 @@ class RunTests(CheckpointFixture):
         self.assertEqual(env['GIGPO_RESUME_MODE'], 'resume_path')
         self.assertEqual(env['GIGPO_RESUME_FROM'], str(checkpoint))
         self.assertEqual(env['GIGPO_EXPECTED_COMMIT'], rc.TRAINING_COMMIT)
+        self.assertEqual(env['GIGPO_ACCEPTANCE_DIR'], str(run))
+        self.assertEqual(env['GIGPO_ACCEPTANCE_REUSE_FROM'], '')
+        self.assertEqual(env['GIGPO_PREFLIGHT_AND_TRAIN'], '0')
         evidence = next(self.chain_path.parent.glob('starts/*.json'))
         self.assertEqual(rc.read_json(evidence)['global_step'], 10)
+        self.assertEqual(rc.read_json(evidence)['acceptance_dir'], str(run))
+
+    def test_checkpoint_without_parent_acceptance_cannot_start_training(self):
+        self.checkpoint(self.run_dir(), 10)
+        with self.assertRaisesRegex(RuntimeError, 'No completed same-revision acceptance'):
+            self.start()
+        evidence = next(self.chain_path.parent.glob('starts/*.json'))
+        self.assertEqual(rc.read_json(evidence)['status'], 'failed_before_training')
 
     def test_completion_does_not_launch_model(self):
         self.checkpoint(self.run_dir(), 150)
@@ -209,6 +294,7 @@ class RunTests(CheckpointFixture):
         old = {'SWANLAB_RUN_ID': 'old-cloud-id', 'SWANLAB_RESUME': 'must',
                'SWANLAB_RUN_DIR': 'old-dir', 'SWANLAB_RUN_PARALLEL': 'shared',
                'GIGPO_RUN_ID': 'old-training-run', 'GIGPO_PREFLIGHT_ONLY': '1',
+               'GIGPO_PREFLIGHT_AND_TRAIN': '1', 'GIGPO_ACCEPTANCE_REUSE_FROM': 'old-commit',
                'GIGPO_RESUME_MODE': 'disable'}
         decision = {'checkpoint': '/source/global_step_10', 'global_step': 10}
         with patch.dict(os.environ, old):
@@ -223,6 +309,8 @@ class RunTests(CheckpointFixture):
         self.assertTrue(env['GIGPO_RUN_ID'].startswith('appworld-qwen25-7b-gigpo-101-'))
         self.assertTrue(env['GIGPO_RUN_ID'].endswith('-chain100-r1-from10'))
         self.assertEqual(env['GIGPO_PREFLIGHT_ONLY'], '0')
+        self.assertEqual(env['GIGPO_PREFLIGHT_AND_TRAIN'], '0')
+        self.assertEqual(env['GIGPO_ACCEPTANCE_REUSE_FROM'], '')
 
 
 if __name__ == '__main__':

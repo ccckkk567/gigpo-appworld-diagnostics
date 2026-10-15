@@ -1,6 +1,6 @@
 """Append three Slurm jobs; select complete state at job start, never at submit.
 
-The controller is separate from the immutable c1fb482 training checkout. It
+The controller is separate from the immutable 84f67cb training checkout. It
 does not change training, acceptance, checkpoint serialization or hyperparameters.
 Only the explicitly recorded jobs in this chain may supply resume checkpoints.
 """
@@ -19,10 +19,9 @@ import uuid
 
 ORION_ROOT = Path('/scratch/prjsnnn0000269/Students/shuming/cjk')
 RUNS_ROOT = ORION_ROOT / 'logs/gigpo-reproduction/appworld'
-TRAINING_COMMIT = 'c1fb4827301393c2f24f56a604a3fcb741e48f2f'
-TRAINING_CHECKOUT = ORION_ROOT / 'code/gigpo-reproduction/appworld-7b-4gpu-train-c1fb482'
-ACCEPTANCE_DIR = RUNS_ROOT / 'appworld-7b-4gpu-preflight-20261015T003620Z-3834802'
-ACCEPTANCE_COMMIT = '58825a74e7de378070970581ae4d8d7b344c5235'
+TRAINING_COMMIT = '84f67cb791cb8b71d81653fb819a55228c9da9f9'
+TRAINING_CHECKOUT = ORION_ROOT / 'code/gigpo-reproduction/appworld-7b-native-reserve-84f67cb'
+ACCEPTANCE_POLICY = 'same_revision_parent_at_start_v1'
 MODEL_PATH = ORION_ROOT / 'data/models/Qwen2.5-7B-Instruct-a09a35458c70'
 HELPER_CHECKOUT = Path(__file__).resolve().parents[2]
 COUNT = 3
@@ -145,14 +144,14 @@ def submit_chain(parent):
     helper_commit = command('git', 'rev-parse', 'HEAD', cwd=HELPER_CHECKOUT)
     verify_checkout(HELPER_CHECKOUT, helper_commit)
     verify_checkout(TRAINING_CHECKOUT, TRAINING_COMMIT)
-    if not (ACCEPTANCE_DIR / 'acceptance.json').is_file():
-        raise RuntimeError('Missing existing acceptance record')
+    # The parent may still be pending. It publishes its same-revision
+    # acceptance inside its run before training; discover that only at start.
     path = RUNS_ROOT / 'resume-chains' / f'from-{parent}' / 'chain.json'
     path.parent.mkdir(parents=True, exist_ok=True)
-    identity = {'version': 1, 'parent_job': parent, 'resume_jobs': COUNT,
+    identity = {'version': 2, 'parent_job': parent, 'resume_jobs': COUNT,
                 'training_checkout': str(TRAINING_CHECKOUT), 'training_commit': TRAINING_COMMIT,
                 'helper_checkout': str(HELPER_CHECKOUT), 'helper_commit': helper_commit,
-                'acceptance_dir': str(ACCEPTANCE_DIR), 'runs_root': str(RUNS_ROOT)}
+                'acceptance_policy': ACCEPTANCE_POLICY, 'runs_root': str(RUNS_ROOT)}
     with submission_lock(path.with_suffix('.lock')):
         if path.exists():
             chain = read_json(path)
@@ -239,6 +238,45 @@ def select_checkpoint(runs_root, jobs, commit, tx):
             'source_jobs': jobs, 'skipped_checkpoints': skipped}
 
 
+def select_acceptance(runs_root, parent, commit):
+    """Find the parent's published acceptance, never reuse an older experiment.
+
+    The pinned training entry additionally verifies the installed package and
+    Python versions against this record before it launches any training.
+    """
+    candidates = []
+    for run in sorted(Path(runs_root).glob(f'appworld-qwen25-7b-gigpo-{numeric_job(parent)}-*')):
+        if run.is_symlink() or not run.is_dir() or not (run / 'acceptance.json').is_file():
+            continue
+        accepted = read_json(run / 'acceptance.json')
+        required = {'passed': True, 'code_commit': commit, 'preflight_job_id': parent,
+                    'model_path': str(MODEL_PATH), 'world_size': 4, 'job_requested_mib': 327680}
+        if any(accepted.get(key) != value for key, value in required.items()):
+            raise RuntimeError(f'Incompatible parent acceptance: {run}')
+        validate_run(run, parent, commit)
+        profile = accepted.get('resource_profile', {})
+        if (profile.get('code_commit') != commit or
+                profile.get('memory_budget_version') != 'cell_with_native_reserve_v1' or
+                not profile.get('native_evaluation_verified') or
+                not profile.get('retained_pressure_evaluation_verified')):
+            raise RuntimeError(f'Parent acceptance lacks native evaluation reserve coverage: {run}')
+        live = read_json(run / 'live-protocol/LIVE_PROTOCOL_PASSED.json')
+        if not live.get('passed') or not live.get('retained_pressure_native_evaluation'):
+            raise RuntimeError(f'Parent HTTP evaluation evidence missing: {run}')
+        evidence = run / 'checkpoint-roundtrip/CHECKPOINT_ROUNDTRIP_PASSED.json'
+        if Path(accepted.get('checkpoint_evidence', '')).resolve() != evidence.resolve():
+            raise RuntimeError(f'Parent checkpoint evidence points outside its run: {run}')
+        ranks = read_json(evidence).get('ranks', [])
+        if (len(ranks) != 4 or {row.get('rank') for row in ranks} != set(range(4)) or
+                not all(row.get('next_update_match') and row.get('dataloader_match') and
+                        row.get('cpu_cuda_numpy_python_rng_match') for row in ranks)):
+            raise RuntimeError(f'Parent four-GPU checkpoint evidence incomplete: {run}')
+        candidates.append(str(run))
+    if not candidates:
+        raise RuntimeError(f'No completed same-revision acceptance from parent job {parent}')
+    return candidates[-1]
+
+
 def training_environment(decision, acceptance, parent, slot, job):
     env = dict(os.environ)
     # A submitted shell may still contain variables from a verification job.
@@ -257,9 +295,9 @@ def training_environment(decision, acceptance, parent, slot, job):
                                     f'Metrics use absolute global steps, starting after {step}. '
                                     'Replayed updates are kept in this separate run; earlier run history is unchanged.'))
     env.update(GIGPO_EXPECTED_COMMIT=TRAINING_COMMIT, GIGPO_RUN_ID=run_id,
-               GIGPO_PREFLIGHT_ONLY='0', GIGPO_RESUME_MODE='resume_path',
+               GIGPO_PREFLIGHT_ONLY='0', GIGPO_PREFLIGHT_AND_TRAIN='0', GIGPO_RESUME_MODE='resume_path',
                GIGPO_RESUME_FROM=checkpoint, GIGPO_ACCEPTANCE_DIR=acceptance,
-               GIGPO_ACCEPTANCE_REUSE_FROM=ACCEPTANCE_COMMIT, SLURM_EXPORT_ENV='ALL')
+               GIGPO_ACCEPTANCE_REUSE_FROM='', SLURM_EXPORT_ENV='ALL')
     return env
 
 
@@ -270,12 +308,12 @@ def run_resume(path, slot):
     evidence = path.parent / 'starts' / f'{job}-{time.time_ns()}.json'
     record = {'job_id': job, 'slot': slot, 'chain': str(path)}
     try:
-        if chain['version'] != 1 or not 1 <= slot <= COUNT:
+        if chain['version'] != 2 or not 1 <= slot <= COUNT:
             raise RuntimeError('Unsupported chain or slot')
         if chain['training_commit'] != TRAINING_COMMIT or Path(chain['training_checkout']) != TRAINING_CHECKOUT:
             raise RuntimeError('Chain training checkout/commit differs from the pinned baseline')
-        if Path(chain['runs_root']) != RUNS_ROOT or Path(chain['acceptance_dir']) != ACCEPTANCE_DIR:
-            raise RuntimeError('Unexpected run/acceptance directory')
+        if Path(chain['runs_root']) != RUNS_ROOT or chain.get('acceptance_policy') != ACCEPTANCE_POLICY:
+            raise RuntimeError('Unexpected run directory or acceptance policy')
         if Path(chain['helper_checkout']).resolve() != HELPER_CHECKOUT:
             raise RuntimeError('Wrong helper checkout')
         verify_checkout(HELPER_CHECKOUT, chain['helper_commit'])
@@ -285,6 +323,8 @@ def run_resume(path, slot):
         if current['status'] not in ('submitting', 'submitted') or current.get('job_id', job) != job:
             raise RuntimeError('Job ID does not match the recorded slot')
         previous = [numeric_job(row['job_id']) for row in chain['jobs'][:slot]]
+        if previous[0] != numeric_job(chain['parent_job']):
+            raise RuntimeError('Parent job does not match the first chain entry')
         # Query the user's queue rather than -j: older completed IDs may have
         # aged out of slurmctld after several 17h50 allocations.
         queued = command('squeue', '-h', '-u', os.environ['USER'], '-o', '%i %T')
@@ -293,8 +333,11 @@ def run_resume(path, slot):
             raise RuntimeError(f'Predecessor jobs are still active: {active}')
         tx = load_transactions(TRAINING_CHECKOUT)
         decision = select_checkpoint(RUNS_ROOT, previous + [job], TRAINING_COMMIT, tx)
-        env = training_environment(decision, chain['acceptance_dir'], chain['parent_job'], slot, job)
+        acceptance = (select_acceptance(RUNS_ROOT, chain['parent_job'], TRAINING_COMMIT)
+                      if decision['status'] != 'already_complete' else '')
+        env = training_environment(decision, acceptance, chain['parent_job'], slot, job)
         record.update(decision, training_commit=TRAINING_COMMIT,
+                      acceptance_dir=acceptance, acceptance_policy=ACCEPTANCE_POLICY,
                       helper_commit=chain['helper_commit'],
                       run_id=env['GIGPO_RUN_ID'], swanlab_policy='separate_run_absolute_steps',
                       swanlab_group=env['SWANLAB_GROUP'])
