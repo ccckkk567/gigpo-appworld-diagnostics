@@ -13,7 +13,7 @@ import sys
 import time
 
 
-MODES = ('healthy', 'allocate', 'catch-memory', 'swallow-deadline')
+MODES = ('healthy', 'retained-pressure', 'allocate', 'catch-memory', 'swallow-deadline')
 
 
 def memory_snapshot():
@@ -33,6 +33,7 @@ def parse_args(argv=None):
     parser.add_argument('--task-id', required=True)
     parser.add_argument('--experiment', required=True)
     parser.add_argument('--as-bytes', required=True, type=int)
+    parser.add_argument('--policy-as-bytes', type=int)
     parser.add_argument('--output', required=True, help='Append-only JSONL evidence path')
     parser.add_argument('--mode', choices=MODES, required=True)
     parser.add_argument('--supervisor-pid', required=True, type=int)
@@ -41,8 +42,12 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.as_bytes <= 0 or not 1 <= args.iterations <= 100:
         parser.error('positive AS bytes and 1..100 iterations are required')
+    if args.policy_as_bytes is not None and not 0 < args.policy_as_bytes < args.as_bytes:
+        parser.error('policy AS bytes must be positive and less than the service hard cap')
+    if args.mode == 'retained-pressure' and args.policy_as_bytes is None:
+        parser.error('retained-pressure requires a separate policy budget')
     if args.soft_seconds is None:
-        args.soft_seconds = 100 if args.mode == 'healthy' else 2
+        args.soft_seconds = 100 if args.mode in ('healthy', 'retained-pressure') else 2
     if args.soft_seconds <= 0:
         parser.error('soft-seconds must be positive')
     if not args.experiment or any(character in args.experiment for character in '/\\'):
@@ -132,6 +137,9 @@ def run_probe(args):
     update_root(str(root))
     install_cst_rejection_handler()
     install_cell_deadline()
+    if args.policy_as_bytes is not None:
+        from experiments.gigpo_diag.appworld_memory_budget import install_cell_memory_budget
+        install_cell_memory_budget(args.policy_as_bytes, args.as_bytes)
     install_exception_cleanup()
     emit(args, 'world_begin', passed=False)
     world = AppWorld(task_id=args.task_id, experiment_name=args.experiment,
@@ -161,6 +169,16 @@ def run_probe(args):
                      num_interactions=world.num_interactions)
             execute_checked(world, 'probe_add(3)\nprint(probe_state["values"])',
                             str([1] + [2] * args.iterations + [3]))
+        elif args.mode == 'retained-pressure':
+            # Retain live objects deliberately: cleanup must not erase user_ns.
+            # Unlike function-local allocation, this reproduces a full cell
+            # budget at the point where native DB evaluation still has to run.
+            execute_checked(world, 'probe_retained = []\n'
+                            'while True:\n    probe_retained.append(bytearray(1048576))',
+                            'MemoryError', failure=True)
+            require(len(world.shell.user_ns['probe_retained']) > 0, 'retained allocation absent')
+            emit(args, 'retained_pressure_complete', passed=False,
+                 retained_blocks=len(world.shell.user_ns['probe_retained']))
         else:
             # Pure-Python requests avoid remote side effects.  Payloads are local
             # so a recoverable failure can actually be released by cleanup.
@@ -191,12 +209,36 @@ def run_probe(args):
         require((logs / 'environment_io.md').is_file(), 'native environment log missing')
         require((logs / 'api_calls.jsonl').is_file(), 'native API call log missing')
         require(bool(world.shell.user_ns['probe_task']), 'real supervisor API returned empty state')
+        emit(args, 'evaluate_begin', passed=False, num_interactions=world.num_interactions)
+        tracker = world.evaluate()
+        require(isinstance(tracker.success, bool), 'native evaluator did not return success boolean')
+        emit(args, 'evaluate_complete', passed=False, native_evaluator_success=tracker.success)
+        # The fixture does not solve the task: evaluation returning a real false
+        # is a valid probe result. Do not substitute a reward or require success.
+        if args.mode == 'retained-pressure':
+            require(len(world.shell.user_ns['probe_retained']) > 0, 'evaluation erased user state')
+        world.save_logs()
         turns = world.num_interactions
         world.close()
         world = None
+        if args.mode == 'retained-pressure':
+            # Exercise the same long-lived process again after native close.
+            # Dropping the closed world here mirrors replacement on initialize;
+            # no live episode namespace is modified to make evaluation pass.
+            import gc
+            gc.collect()
+            world = AppWorld(task_id=args.task_id, experiment_name=args.experiment + '-next',
+                             max_interactions=5, timeout_seconds=args.soft_seconds)
+            execute_checked(world, 'print(6 * 7)', '42')
+            next_tracker = world.evaluate()
+            require(isinstance(next_tracker.success, bool), 'next episode evaluation failed')
+            emit(args, 'next_episode_complete', passed=False)
+            world.close()
+            world = None
         emit(args, 'completed', passed=True, num_interactions=turns,
              native_database=True, native_safety_guard=True,
-             native_state_and_logs=True, next_cell_succeeded=True)
+             native_state_and_logs=True, native_evaluation=True,
+             next_cell_succeeded=args.mode != 'retained-pressure')
     finally:
         if world is not None:
             world.close()

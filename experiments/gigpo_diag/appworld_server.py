@@ -5,6 +5,7 @@ Let native AppWorld.execute record that rejection and consume one interaction.
 Do not run rejected code, change projection/rewards, or mask service failures.
 """
 import functools
+import os
 import runpy
 
 
@@ -33,6 +34,9 @@ def main():
     install_cst_rejection_handler()
     from experiments.gigpo_diag.appworld_timeout import install_cell_deadline
     install_cell_deadline()
+    if os.environ.get('GIGPO_RESOURCE_PROFILE'):
+        from experiments.gigpo_diag.appworld_memory_budget import install_cell_memory_budget
+        install_cell_memory_budget()
     from experiments.gigpo_diag.appworld_exception_cleanup import install_exception_cleanup
     install_exception_cleanup()
     from experiments.gigpo_diag.appworld_execution_trace import install_execution_trace

@@ -8,7 +8,7 @@ import unittest
 
 @unittest.skipUnless(os.name == 'posix', 'Requires Linux bash')
 class FullTrainingShellTests(unittest.TestCase):
-    def run_job(self, failure):
+    def run_job(self, failure, inline=False):
         source = Path(__file__).with_name('train.sbatch').read_text()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -22,6 +22,7 @@ class FullTrainingShellTests(unittest.TestCase):
             (scripts / 'nvidia_job_env.sh').write_text(':\n')
             (scripts / 'common.sh').write_text('''
 export ORION_ROOT="$FIXTURE_ROOT" GIGPO_VENV="$FIXTURE_ROOT/venv"
+export GIGPO_MODEL_PATH="$FIXTURE_ROOT/existing-model"
 export RAY_TMPDIR="$FIXTURE_ROOT/ray"
 ''')
             (scripts / 'launch_reference.sh').write_text('''
@@ -46,22 +47,31 @@ python() {
   printf '%s\\n' "$*" >> "$FIXTURE_ROOT/calls.txt"
   if [[ "$*" == *bounded_acceptance* && "$FAILURE" == acceptance ]]; then return 41; fi
   if [[ "$*" == *appworld_resource_preflight* && "$FAILURE" == preflight ]]; then return 43; fi
+  if [[ "$*" == *check_appworld_live_protocol* && "$FAILURE" == protocol ]]; then return 44; fi
+  if [[ "$*" == *check_checkpoint_roundtrip* && "$FAILURE" == checkpoint ]]; then return 45; fi
 }
 export -f module git nvidia-smi timeout tar python
 ''')
             env = {**os.environ, 'BASH_ENV': str(shim), 'FIXTURE_ROOT': str(root),
                    'FAILURE': failure, 'SLURM_JOB_ID': '12345', 'SLURM_CPUS_PER_TASK': '32',
-                   'GIGPO_PREFLIGHT_ONLY': '0', 'GIGPO_RUN_ID': ''}
+                   'GIGPO_PREFLIGHT_ONLY': '0', 'GIGPO_PREFLIGHT_AND_TRAIN': str(int(inline)),
+                   'GIGPO_RUN_ID': ''}
             result = subprocess.run(['bash', str(script)], cwd=root, env=env,
                                     capture_output=True, text=True, timeout=20)
             calls = (root / 'calls.txt').read_text()
             runs = list((root / 'logs/gigpo-reproduction/appworld').iterdir())
             self.assertEqual(len(runs), 1)
             self.assertIn(f'exit={result.returncode}', result.stdout)
-            self.assertIn('bounded_acceptance verify', calls)
-            self.assertNotIn('bounded_acceptance publish', calls)
+            if inline:
+                self.assertNotIn('bounded_acceptance verify', calls)
+                if failure not in ('preflight', 'protocol', 'checkpoint'):
+                    self.assertIn('bounded_acceptance publish', calls)
+                    self.assertLess(calls.index('check_appworld_live_protocol'), calls.index('bounded_acceptance publish'))
+            else:
+                self.assertIn('bounded_acceptance verify', calls)
+                self.assertNotIn('bounded_acceptance publish', calls)
             self.assertNotIn('actor_update_evidence verify', calls)
-            if failure in ('acceptance', 'preflight'):
+            if failure in ('acceptance', 'preflight', 'protocol', 'checkpoint'):
                 self.assertFalse((root / 'overrides.txt').exists())
             else:
                 self.assertEqual((root / 'overrides.txt').read_text().splitlines(), ['vllm'])
@@ -89,6 +99,14 @@ export -f module git nvidia-smi timeout tar python
 
     def test_failed_archive_does_not_turn_success_into_training_failure(self):
         self.assertEqual(self.run_job('archive').returncode, 0)
+
+    def test_inline_gate_continues_the_full_schedule(self):
+        self.assertEqual(self.run_job('', inline=True).returncode, 0)
+
+    def test_inline_gate_failures_never_start_training(self):
+        for failure, status in [('preflight', 43), ('protocol', 44), ('checkpoint', 45)]:
+            with self.subTest(failure=failure):
+                self.assertEqual(self.run_job(failure, inline=True).returncode, status)
 
 
 if __name__ == '__main__':

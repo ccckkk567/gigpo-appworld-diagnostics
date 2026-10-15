@@ -16,7 +16,7 @@ import time
 from experiments.gigpo_diag.appworld_resource import atomic_json, proc_memory, cgroup_memory, PROTOCOL
 
 
-def run_probe(directory, task, mode, limit, iterations=20):
+def run_probe(directory, task, mode, limit, iterations=20, policy_limit=None):
     directory.mkdir(parents=True, exist_ok=False)
     root = directory / 'appworld'
     root.mkdir()
@@ -26,7 +26,9 @@ def run_probe(directory, task, mode, limit, iterations=20):
                '--root', str(root), '--task-id', task, '--experiment', 'bounded-probe',
                '--as-bytes', str(limit), '--output', str(output), '--mode', mode,
                '--supervisor-pid', str(os.getpid()), '--iterations', str(iterations),
-               '--soft-seconds', '100' if mode == 'healthy' else '2']
+               '--soft-seconds', '100' if mode in ('healthy', 'retained-pressure') else '2']
+    if policy_limit is not None:
+        command.extend(['--policy-as-bytes', str(policy_limit)])
     peaks = {'rss_bytes': 0, 'vms_bytes': 0}
     start = time.monotonic()
     killed = False
@@ -42,8 +44,9 @@ def run_probe(directory, task, mode, limit, iterations=20):
                 events = read_events(output)
                 if danger_start is None and any(e.get('event') == 'danger_started' for e in events):
                     danger_start = time.monotonic()
+                danger_returned = any(e.get('event') == 'danger_returned' for e in events)
                 if (time.monotonic() - start > 240 or
-                        danger_start is not None and time.monotonic() - danger_start > 10):
+                        danger_start is not None and not danger_returned and time.monotonic() - danger_start > 10):
                     child.kill()
                     killed = True
                     break
@@ -60,6 +63,10 @@ def run_probe(directory, task, mode, limit, iterations=20):
     expected_kill = mode == 'swallow-deadline'
     passed = (killed and danger_start is not None) if expected_kill else (
         child.returncode == 0 and any(e.get('event') == 'completed' and e.get('passed') for e in events))
+    if not expected_kill:
+        passed = passed and any(e.get('event') == 'evaluate_complete' for e in events)
+    if mode == 'retained-pressure':
+        passed = passed and any(e.get('event') == 'next_episode_complete' for e in events)
     result = {'mode': mode, 'task_id': task, 'limit_as_bytes': limit, 'external_kill': killed,
               'returncode': child.returncode, 'passed': bool(passed), 'sampled_peaks': peaks,
               'events': events, 'elapsed_seconds': time.monotonic() - start}
@@ -81,6 +88,42 @@ def read_events(path):
     return events
 
 
+def select_budgets(results, ceiling):
+    """Keep measured cell headroom and reserve the remaining fixed envelope.
+
+    A pressure probe still has to prove the reserve sufficient with live user
+    objects. This calculation is not itself proof of evaluator correctness.
+    """
+    policy_peaks = []
+    evaluation_deltas = []
+    for result in results:
+        events = result['events']
+        before = next(e for e in events if e['event'] == 'evaluate_begin')
+        after = next(e for e in events if e['event'] == 'evaluate_complete')
+        policy_peaks.append(before['VmPeak_bytes'])
+        evaluation_deltas.append(max(0, after['VmPeak_bytes'] - before['VmSize_bytes']))
+    policy = math.ceil(max(policy_peaks) * 1.30 / 4096) * 4096
+    hard = (ceiling // 4096) * 4096
+    reserve = hard - policy
+    required_reserve = math.ceil((max(evaluation_deltas) * 1.30 + 64 * 1024**2) / 4096) * 4096
+    peak_vms = max(r['sampled_peaks']['vms_bytes'] for r in results)
+    peak_rss = max(r['sampled_peaks']['rss_bytes'] for r in results)
+    if min(peak_vms, peak_rss) <= 0 or reserve < required_reserve or peak_vms >= hard:
+        raise RuntimeError(f'Native evaluation does not fit the fixed environment budget: '
+                           f'policy={policy}, hard={hard}, reserve={reserve}, '
+                           f'required_reserve={required_reserve}, measured_vms={peak_vms}. '
+                           'No training started; RAM was not raised.')
+    rss_watchdog = int(hard * .90)
+    if peak_rss * 1.15 >= rss_watchdog:
+        raise RuntimeError('Measured RSS leaves insufficient recovery headroom')
+    return {'policy_as_bytes': policy, 'service_as_bytes': hard,
+            'native_reserve_bytes': reserve, 'required_native_reserve_bytes': required_reserve,
+            'measured_policy_peak_vms_bytes': max(policy_peaks),
+            'measured_evaluation_delta_bytes': max(evaluation_deltas),
+            'measured_peak_vms_bytes': peak_vms, 'measured_peak_rss_bytes': peak_rss,
+            'service_rss_watchdog_bytes': rss_watchdog}
+
+
 def main():
     if sys.platform != 'linux':
         raise RuntimeError('Native resource calibration requires Linux /proc and RLIMIT_AS')
@@ -99,39 +142,33 @@ def main():
         tasks.extend((split, t) for t in ids[:2])
     if len(tasks) != 4:
         raise RuntimeError('Need two train and two dev tasks for measured calibration')
+    # Regression from job 163354. This is extra calibration coverage, never a
+    # filter or substitution in the actual training/dev datasets.
+    tasks.append(('regression-163354', '6ea6792_1'))
     results = [run_probe(destination / f'baseline-{i}-{split}', task, 'healthy', ceiling)
                for i, (split, task) in enumerate(tasks)]
-    peak_vms = max(r['sampled_peaks']['vms_bytes'] for r in results)
-    peak_rss = max(r['sampled_peaks']['rss_bytes'] for r in results)
-    if min(peak_vms, peak_rss) <= 0:
-        raise RuntimeError('Missing normal baseline memory measurements')
-    # Select from measured usage; never silently squeeze legal baseline under
-    # an arbitrary fixed number of GiB. Round only to OS pages.
-    limit = math.ceil(peak_vms * 1.30 / 4096) * 4096
-    if limit > ceiling:
-        raise RuntimeError(f'Normal baseline needs {limit} AS bytes; environment envelope allows {ceiling}. No training started.')
-    rss_watchdog = int(limit * .90)
-    if peak_rss * 1.15 >= rss_watchdog:
-        raise RuntimeError('Measured RSS leaves insufficient recovery headroom')
+    budgets = select_budgets(results, ceiling)
+    limit, policy = budgets['service_as_bytes'], budgets['policy_as_bytes']
     # Recheck legal operations under the selected production limit.
     for i, (split, task) in enumerate(tasks):
-        run_probe(destination / f'limited-{i}-{split}', task, 'healthy', limit)
+        run_probe(destination / f'limited-{i}-{split}', task, 'healthy', limit, policy_limit=policy)
+        run_probe(destination / f'retained-{i}-{split}', task, 'retained-pressure', limit, policy_limit=policy)
     for mode in ('allocate', 'catch-memory', 'swallow-deadline'):
         # AppWorld's DB loader treats any path containing "memory" as an
         # in-memory connection, including task files below a disk root. Keep
         # the logical mode but avoid that substring in its physical directory.
         directory_name = 'catch-allocation' if mode == 'catch-memory' else mode
-        run_probe(destination / directory_name, tasks[0][1], mode, limit)
+        run_probe(destination / directory_name, tasks[0][1], mode, limit, policy_limit=policy)
     versions = {p: importlib.metadata.version(p) for p in ('appworld', 'ipython', 'libcst')}
     profile = {'protocol': PROTOCOL, 'calibrated': True,
                'code_commit': os.environ['GIGPO_CODE_COMMIT'], 'packages': versions,
-               'service_count': count, 'service_as_bytes': limit,
-               'service_rss_watchdog_bytes': rss_watchdog,
-               'measured_peak_vms_bytes': peak_vms, 'measured_peak_rss_bytes': peak_rss,
+               'service_count': count, **budgets,
+               'memory_budget_version': 'cell_with_native_reserve_v1',
+               'native_evaluation_verified': True, 'retained_pressure_evaluation_verified': True,
                'hard_execute_seconds': 140, 'job_requested_bytes': job_bytes,
                'environment_envelope_bytes': envelope,
                'cgroup_before_training': cgroup_memory(), 'cases': tasks,
-               'scope': 'sampled legal task interactions; not exhaustive task coverage'}
+               'scope': 'sampled native interactions, save, evaluate and retained-pressure evaluation; not exhaustive task coverage'}
     atomic_json(os.environ['GIGPO_RESOURCE_PROFILE'], profile)
     print('BOUNDED_RUNTIME_PREFLIGHT_PASSED', json.dumps(profile), flush=True)
 

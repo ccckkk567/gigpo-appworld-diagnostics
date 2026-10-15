@@ -54,14 +54,16 @@ export GIGPO_RESOURCE_PROFILE="$GIGPO_RUN_DIR/bounded_runtime_profile.json"
 python -c 'import json,os; from pathlib import Path; from experiments.gigpo_diag.verify_existing_model import verify_existing_model; identity=verify_existing_model(os.environ["GIGPO_MODEL_PATH"]); (Path(os.environ["GIGPO_RUN_DIR"])/"model_identity.json").write_text(json.dumps(identity,indent=2)); print("EXISTING_7B_MODEL_VERIFIED_OFFLINE",identity["revision"],flush=True)'
 # Require completed resource/protocol/checkpoint evidence. Explicit reviewed
 # diagnostic-only reuse can avoid repeating that completed acceptance job.
-if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" != 1 ]]; then
+if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" != 1 && "${GIGPO_PREFLIGHT_AND_TRAIN:-0}" != 1 ]]; then
   python -m experiments.gigpo_diag.bounded_acceptance verify
 fi
 timeout --signal=TERM --kill-after=30s 15m python -m experiments.gigpo_diag.appworld_resource_preflight
-if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" == 1 ]]; then
+if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" == 1 || "${GIGPO_PREFLIGHT_AND_TRAIN:-0}" == 1 ]]; then
   timeout --signal=TERM --kill-after=30s 5m python -m unittest \
     experiments.gigpo_diag.test_appworld_resource \
     experiments.gigpo_diag.test_appworld_resource_preflight \
+    experiments.gigpo_diag.test_appworld_memory_budget \
+    experiments.gigpo_diag.test_appworld_memory_budget_native \
     experiments.gigpo_diag.test_appworld_exception_cleanup \
     experiments.gigpo_diag.test_appworld_timeout \
     experiments.gigpo_diag.test_checkpoint_transaction
@@ -73,7 +75,10 @@ if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" == 1 ]]; then
     --standalone --nproc_per_node=4 -m experiments.gigpo_diag.check_checkpoint_roundtrip \
     --model "$GIGPO_MODEL_PATH" --output "$GIGPO_RUN_DIR/checkpoint-roundtrip"
   python -m experiments.gigpo_diag.bounded_acceptance publish
-  exit 0
+  if [[ "${GIGPO_PREFLIGHT_ONLY:-0}" == 1 ]]; then
+    exit 0
+  fi
+  echo "BOUNDED_PREFLIGHT_COMPLETE_CONTINUING_FULL_TRAINING"
 fi
 printf '%s\n' "bash experiments/gigpo_diag/launch_reference.sh vllm" > "$GIGPO_RUN_DIR/actual_command.txt"
 cp "$GIGPO_VENV/gigpo-pip-freeze.txt" "$GIGPO_RUN_DIR/pip-freeze.txt"

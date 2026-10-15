@@ -25,7 +25,7 @@ class ProbePathTests(unittest.TestCase):
             profile = root / 'profile.json'
             calls = []
 
-            def probe(directory, task, mode, limit):
+            def probe(directory, task, mode, limit, **kwargs):
                 # Use main's actual directory selection and the installed DB
                 # loader. Only task execution and its measurements are fixtures.
                 changes = directory / 'appworld' / 'data' / 'tasks' / task / 'dbs' / 'spotify.jsonl'
@@ -37,7 +37,10 @@ class ProbePathTests(unittest.TestCase):
                     apply_db_changes(connection, str(changes))
                     self.assertEqual(connection.execute('SELECT value FROM probe').fetchone(), (mode,))
                 calls.append((directory.name, mode))
-                return {'sampled_peaks': {'vms_bytes': 200 * 1024**2, 'rss_bytes': 100 * 1024**2}}
+                return {'sampled_peaks': {'vms_bytes': 200 * 1024**2, 'rss_bytes': 100 * 1024**2},
+                        'events': [{'event': 'evaluate_begin', 'VmPeak_bytes': 150 * 1024**2,
+                                    'VmSize_bytes': 140 * 1024**2},
+                                   {'event': 'evaluate_complete', 'VmPeak_bytes': 200 * 1024**2}]}
 
             env = {'SLURM_MEM_PER_NODE': str(320 * 1024),
                    'GIGPO_RUN_DIR': str(root / 'run'), 'GIGPO_APPWORLD_DATA': str(root),
@@ -48,10 +51,11 @@ class ProbePathTests(unittest.TestCase):
                     patch.object(preflight.importlib.metadata, 'version', return_value='fixture'), \
                     contextlib.redirect_stdout(io.StringIO()):
                 preflight.main()
-            self.assertEqual(len(calls), 11)
+            self.assertEqual(len(calls), 18)
             self.assertEqual([mode for _, mode in calls[-3:]],
                              ['allocate', 'catch-memory', 'swallow-deadline'])
-            self.assertEqual(sum(mode == 'healthy' for _, mode in calls), 8)
+            self.assertEqual(sum(mode == 'healthy' for _, mode in calls), 10)
+            self.assertEqual(sum(mode == 'retained-pressure' for _, mode in calls), 5)
             self.assertTrue(json.loads(profile.read_text())['calibrated'])
 
 

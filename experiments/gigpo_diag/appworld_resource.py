@@ -147,4 +147,12 @@ def load_profile():
         raise RuntimeError('Service RSS watchdog must leave measured recovery headroom')
     if profile['code_commit'] != os.environ['GIGPO_CODE_COMMIT']:
         raise RuntimeError('Calibrated resource profile belongs to another code revision')
+    if (profile.get('memory_budget_version') != 'cell_with_native_reserve_v1' or
+            not profile.get('native_evaluation_verified') or
+            not profile.get('retained_pressure_evaluation_verified')):
+        raise RuntimeError('Resource profile lacks native and retained-pressure evaluation coverage')
+    if not (0 < profile['policy_as_bytes'] < profile['service_as_bytes'] and
+            profile['native_reserve_bytes'] == profile['service_as_bytes'] - profile['policy_as_bytes'] and
+            profile['service_as_bytes'] * profile['service_count'] <= profile['environment_envelope_bytes']):
+        raise RuntimeError('Invalid native reserve or environment envelope')
     return profile

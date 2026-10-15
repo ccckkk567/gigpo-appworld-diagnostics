@@ -49,11 +49,11 @@ class AcceptanceReuseTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 verify_compatible(self.accepted, self.current, SOURCE_COMMIT)
 
-    def test_reviewed_files_match_the_current_source(self):
+    def test_resource_repair_cannot_reuse_diagnostic_only_acceptance(self):
         repo = Path(__file__).resolve().parents[2]
-        result = validate_changes(set(REVIEWED_FILES) | OTHER_REVIEWED_PATHS,
-                                  lambda path: (repo / path).read_text(encoding='utf-8').encode())
-        self.assertEqual(result, REVIEWED_FILES)
+        with self.assertRaisesRegex(RuntimeError, 'unreviewed content'):
+            validate_changes(['experiments/gigpo_diag/train.sbatch'],
+                             lambda path: (repo / path).read_text(encoding='utf-8').encode())
 
     def test_unreviewed_algorithm_or_configuration_changes_fail(self):
         for path in ['verl/trainer/ppo/core_algos.py', 'experiments/gigpo_diag/launch_reference.sh',
